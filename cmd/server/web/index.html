@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+            background: linear-gradient(135deg, #2c3e50 0%, #1a1a2e 50%, #16213e 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            overflow-x: hidden;
+        }
+        .header {
+            position: relative;
+            width: 100%;
+            max-width: 1100px;
+            margin-bottom: 16px;
+            text-align: center;
+            color: white;
+        }
+        .header h1 {
+            font-size: 26px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.4);
+            letter-spacing: 3px;
+            font-weight: 500;
+        }
+        .header .page-info {
+            position: absolute;
+            right: 8px;
+            bottom: 0;
+            font-size: 12px;
+            opacity: 0.85;
+            letter-spacing: 0.5px;
+            background: rgba(255,255,255,0.12);
+            backdrop-filter: blur(8px);
+            padding: 4px 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.15);
+        }
+        .book-container {
+            perspective: 2800px;
+            width: 100%;
+            max-width: 1100px;
+            height: 680px;
+            position: relative;
+            overflow: hidden;
+        }
+        .book {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            transform-style: preserve-3d;
+            display: flex;
+            overflow: hidden;
+        }
+        /* Spread - 双页展开容器 */
+        .spread {
+            position: absolute;
+            width: 200%;
+            height: 100%;
+            display: flex;
+            visibility: visible;
+            z-index: 2;
+        }
+        .spread.hidden { visibility: hidden; }
+        /* 单页 */
+        .page {
+            flex: 1;
+            height: 100%;
+            background: white;
+            display: flex;
+            overflow: hidden;
+            backface-visibility: hidden;
+            transform-style: preserve-3d;
+            transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1),
+                        opacity 0.5s ease;
+            position: relative;
+        }
+        /* 翻页动画中的页面 */
+        .page.flipping {
+            transform-origin: left center;
+            z-index: 100;
+        }
+        .page.flipped {
+            transform: rotateY(-180deg);
+        }
+        /* 左页翻页阴影 */
+        .page.underneath::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to right, transparent 60%, rgba(0,0,0,0.3) 100%);
+            opacity: 0;
+            transition: opacity 0.4s ease;
+            pointer-events: none;
+        }
+        .page.underneath.show-shadow::after {
+            opacity: 1;
+        }
+        /* 页面布局 - Gemini风格 */
+        .page .image-section {
+            flex: 0 0 62%;
+            height: 100%;
+            overflow: hidden;
+            background: #f8f8f8;
+            position: relative;
+        }
+        .page .image-section img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .page .text-section {
+            flex: 1;
+            padding: 32px 28px 28px 24px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            background: linear-gradient(180deg, #fff 0%, #fafafa 100%);
+            position: relative;
+        }
+        .page .text-section::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            background: linear-gradient(to bottom, transparent, #e8e8e8 20%, #e8e8e8 80%, transparent);
+        }
+        .page .text-section .page-number {
+            order: 2;
+            margin-top: 14px;
+            font-size: 11px;
+            color: #bbb;
+            letter-spacing: 1.5px;
+            text-align: right;
+            font-weight: 400;
+        }
+        .page .text-section .content {
+            order: 1;
+            font-size: 20px;
+            line-height: 1.95;
+            color: #333;
+            letter-spacing: 0.3px;
+        }
+        .page .text-section .content p {
+            text-indent: 2em;
+            margin: 0 0 10px 0;
+        }
+        .page .text-section .content p:last-child {
+            margin-bottom: 0;
+        }
+        .page .text-section .content .drop-cap {
+            font-size: 32px;
+            font-weight: 700;
+            line-height: 1;
+            margin-right: 2px;
+            color: #2c3e50;
+            vertical-align: baseline;
+        }
+        .page .text-section .click-hint {
+            margin-top: 12px;
+            font-size: 11px;
+            color: #ccc;
+            opacity: 0.7;
+        }
+        /* Cover page - 封面 */
+        .page.cover {
+            flex: 1;
+            height: 100%;
+            background: linear-gradient(135deg, #FF9A9E 0%, #FAD0C4 50%, #FFD1FF 100%);
+            color: white;
+            text-align: center;
+            justify-content: center;
+            align-items: center;
+            transform-origin: center center;
+            cursor: default;
+            flex-direction: column;
+            padding: 0;
+        }
+        .page.cover .cover-bg {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            object-fit: cover;
+            opacity: 0.35;
+        }
+        .page.cover .cover-overlay {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.15);
+        }
+        .page.cover .cover-content {
+            z-index: 2;
+            position: relative;
+            padding: 40px;
+        }
+        .page.cover h1 {
+            font-size: 42px;
+            margin-bottom: 12px;
+            text-shadow: 3px 3px 8px rgba(0,0,0,0.35);
+            letter-spacing: 6px;
+            font-weight: 600;
+        }
+        .page.cover .subtitle {
+            font-size: 18px;
+            opacity: 0.9;
+            font-weight: 300;
+            letter-spacing: 2px;
+        }
+        .page.cover .author {
+            position: absolute;
+            bottom: 36px;
+            right: 40px;
+            font-size: 13px;
+            opacity: 0.65;
+            z-index: 2;
+            letter-spacing: 1px;
+        }
+        /* Nav buttons - Gemini风格 */
+        .nav-buttons { display: flex; gap: 16px; margin-top: 20px; }
+        .nav-buttons button {
+            padding: 12px 32px;
+            font-size: 15px;
+            border: none;
+            border-radius: 24px;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            font-family: inherit;
+            letter-spacing: 1px;
+            font-weight: 500;
+        }
+        .nav-buttons .prev-btn {
+            background: rgba(255,255,255,0.15);
+            color: white;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .nav-buttons .prev-btn:hover:not(:disabled) {
+            background: rgba(255,255,255,0.25);
+            transform: translateY(-2px);
+        }
+        .nav-buttons .next-btn {
+            background: white;
+            color: #1a1a2e;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+        }
+        .nav-buttons .next-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+        }
+        .nav-buttons button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none;
+        }
+        /* Export buttons - Gemini风格 */
+        .export-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 16px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .export-buttons button {
+            padding: 8px 18px;
+            font-size: 12px;
+            background: rgba(255,255,255,0.1);
+            color: rgba(255,255,255,0.85);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 18px;
+            cursor: pointer;
+            backdrop-filter: blur(8px);
+            font-family: inherit;
+            transition: all 0.3s ease;
+            letter-spacing: 0.5px;
+        }
+        .export-buttons button:hover {
+            background: rgba(255,255,255,0.2);
+            transform: translateY(-1px);
+            color: white;
+        }
+        /* Loading */
+        .loading-overlay {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.75);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .loading-spinner {
+            width: 48px; height: 48px;
+            border: 3px solid rgba(255,255,255,0.15);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text {
+            color: white;
+            margin-top: 18px;
+            font-size: 16px;
+            letter-spacing: 1px;
+        }
+        /* Responsive */
+        @media (max-width: 900px) {
+            .book-container { height: 580px; }
+            .page { flex-direction: column; }
+            .page .image-section,
+            .page .text-section { flex: none; width: 100%; height: 50%; }
+            .page .text-section { padding: 20px; justify-content: flex-end; }
+            .page .text-section .content { font-size: 17px; line-height: 1.85; }
+            .page .text-section .content p { margin-bottom: 8px; }
+            .page .text-section .content .drop-cap { font-size: 26px; }
+            .page.cover h1 { font-size: 30px; letter-spacing: 4px; }
+            .header .page-info { position: static; margin-top: 8px; display: inline-block; }
+            .nav-buttons button { padding: 10px 22px; font-size: 14px; }
+        }
+        @media (max-width: 520px) {
+            body { padding: 12px; }
+            .header h1 { font-size: 20px; letter-spacing: 2px; }
+            .header { margin-bottom: 12px; }
+            .book-container { height: 520px; }
+            .page .text-section .content { font-size: 14px; }
+            .page .text-section { padding: 14px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1 id="bookTitle"></h1>
+        <div class="page-info" id="pageInfo">第 1 页 / 共 {{.PageCount}} 页</div>
+    </div>
+
+    <div class="book-container">
+        <div class="book" id="book"></div>
+    </div>
+
+    <div class="nav-buttons">
+        <button class="prev-btn" id="prevBtn">← 上一页</button>
+        <button class="next-btn" id="nextBtn">下一页 →</button>
+    </div>
+
+    <div class="export-buttons">
+        <button id="btnPrint">📄 打印/导出PDF</button>
+        <button id="btnImages">🖼️ 下载图片</button>
+        <button id="btnShare">📤 分享给朋友</button>
+    </div>
+
+    <script>
+    (function() {
+        var bookData = {{.PagesJSON}};
+        var currentPage = 0;
+        var totalPages = bookData.length;
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function formatStoryHtml(text) {
+            if (!text) return '';
+            // Split on actual newline character - no regex escaping issues
+            var paragraphs = text.split('\n').map(function(p) { return p.trim(); }).filter(Boolean);
+            var result = [];
+            paragraphs.forEach(function(p, index) {
+                var trimmed = p.replace(/^\s+/, '');
+                var firstChar = trimmed.charAt(0);
+                var rest = trimmed.slice(1);
+                var content = index === 0
+                    ? '<span class="drop-cap">' + firstChar + '</span>' + rest
+                    : firstChar + rest;
+                result.push('<p>' + content + '</p>');
+            });
+            return result.join('');
+        }
+
+        function init() {
+            try {
+                if (!bookData || !bookData.length) {
+                    document.getElementById('book').innerHTML = '<div style="color:#666;padding:60px;text-align:center;font-size:20px">绘本数据为空，请重新生成。</div>';
+                    return;
+                }
+                document.getElementById('bookTitle').textContent = bookData[0].text || '我的绘本';
+                renderPages();
+                updateButtons();
+            } catch(e) {
+                console.error('Render error:', e);
+                document.getElementById('book').innerHTML = '<div style="color:#c00;padding:60px;text-align:center">渲染出错：' + e.message + '</div>';
+            }
+        }
+
+        function renderPages() {
+            var book = document.getElementById('book');
+            book.innerHTML = '';
+
+            var numSpreads = Math.ceil(bookData.length / 2);
+
+            for (var spreadIndex = 0; spreadIndex < numSpreads; spreadIndex++) {
+                var spread = document.createElement('div');
+                spread.className = 'spread';
+                spread.dataset.spreadIndex = spreadIndex;
+
+                if (spreadIndex === 0) {
+                    spread.appendChild(createCoverPage());
+                }
+
+                var pageIndexA = spreadIndex * 2;
+                var pageIndexB = spreadIndex * 2 + 1;
+
+                if (pageIndexA < bookData.length && pageIndexA > 0) {
+                    spread.appendChild(createContentPage(pageIndexA));
+                }
+                if (pageIndexB < bookData.length && pageIndexB > 0) {
+                    spread.appendChild(createContentPage(pageIndexB));
+                }
+
+                if (spreadIndex > 0) {
+                    spread.style.display = 'none';
+                }
+
+                book.appendChild(spread);
+            }
+
+            currentSpreadIndex = 0;
+            updatePageInfo();
+            updateButtons();
+        }
+
+        var currentSpreadIndex = 0;
+
+        function createCoverPage() {
+            var pageEl = document.createElement('div');
+            pageEl.className = 'page cover';
+            pageEl.dataset.index = 0;
+
+            var title = escapeHtml(bookData[0].text || '我的绘本');
+            var subtitle = bookData[0].subtitle ? escapeHtml(bookData[0].subtitle) : '';
+            pageEl.innerHTML =
+                '<img class="cover-bg" src="' + bookData[0].image + '" alt="封面背景">' +
+                '<div class="cover-overlay"></div>' +
+                '<div class="cover-content">' +
+                '<h1>' + title + '</h1>' +
+                (subtitle ? '<div class="subtitle">' + subtitle + '</div>' : '') +
+                '</div>' +
+                '<div class="author">AI Storybook</div>';
+            pageEl.addEventListener('click', function() { nextPage(); });
+            return pageEl;
+        }
+
+        function createContentPage(index) {
+            var page = bookData[index];
+            var pageEl = document.createElement('div');
+            pageEl.className = 'page';
+            pageEl.dataset.index = index;
+
+            pageEl.innerHTML =
+                '<div class="image-section">' +
+                '<img src="' + page.image + '" alt="第' + page.page_num + '页" loading="lazy">' +
+                '</div>' +
+                '<div class="text-section">' +
+                '<div class="content">' + formatStoryHtml(page.text) + '</div>' +
+                '<div class="page-number">第 ' + page.page_num + ' 页</div>' +
+                '</div>';
+
+            pageEl.addEventListener('click', function(event) {
+                var rect = pageEl.getBoundingClientRect();
+                var isRightSide = event.clientX >= rect.left + rect.width * 0.35;
+                if (isRightSide) {
+                    nextPage();
+                } else {
+                    prevPage();
+                }
+            });
+
+            return pageEl;
+        }
+
+        function showSpread(index) {
+            var spreads = document.querySelectorAll('.spread');
+            if (index < 0 || index >= spreads.length) return;
+
+            spreads.forEach(function(spread, i) {
+                if (i === index) {
+                    spread.style.display = 'flex';
+                    spread.style.opacity = '1';
+                    spread.style.zIndex = spreads.length;
+                } else if (i < index) {
+                    spread.style.display = 'flex';
+                    spread.style.opacity = '0';
+                    spread.style.zIndex = 0;
+                } else {
+                    spread.style.display = 'none';
+                    spread.style.opacity = '0';
+                    spread.style.zIndex = spreads.length - i;
+                }
+            });
+
+            currentSpreadIndex = index;
+            updatePageInfo();
+            updateButtons();
+        }
+
+        function nextPage() {
+            var spreads = document.querySelectorAll('.spread');
+            if (currentSpreadIndex < spreads.length - 1) {
+                showSpread(currentSpreadIndex + 1);
+            }
+        }
+
+        function prevPage() {
+            if (currentSpreadIndex > 0) {
+                showSpread(currentSpreadIndex - 1);
+            }
+        }
+
+        function updatePageInfo() {
+            var spreads = document.querySelectorAll('.spread');
+            var totalSpreads = spreads.length;
+            document.getElementById('pageInfo').textContent = '第 ' + (currentSpreadIndex + 1) + ' 节 / 共 ' + totalSpreads + ' 节';
+        }
+
+        function updateButtons() {
+            var spreads = document.querySelectorAll('.spread');
+            document.getElementById('prevBtn').disabled = currentSpreadIndex === 0;
+            document.getElementById('nextBtn').disabled = currentSpreadIndex === spreads.length - 1;
+        }
+
+        document.getElementById('prevBtn').addEventListener('click', prevPage);
+        document.getElementById('nextBtn').addEventListener('click', nextPage);
+
+        // Keyboard
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); nextPage(); }
+            if (e.key === 'ArrowLeft') { e.preventDefault(); prevPage(); }
+        });
+
+        // Touch swipe
+        var touchStartX = 0;
+        var touchStartY = 0;
+        var container = document.querySelector('.book-container');
+
+        container.addEventListener('touchstart', function(e) {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+        }, { passive: true });
+
+        container.addEventListener('touchend', function(e) {
+            var diffX = touchStartX - e.changedTouches[0].clientX;
+            var diffY = touchStartY - e.changedTouches[0].clientY;
+            if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 50) {
+                if (diffX > 0) nextPage();
+                else prevPage();
+            }
+        });
+
+        // Mouse drag
+        var mouseDown = false;
+        var mouseStartX = 0;
+        container.addEventListener('mousedown', function(e) {
+            mouseDown = true;
+            mouseStartX = e.clientX;
+        });
+        container.addEventListener('mouseup', function(e) {
+            if (!mouseDown) return;
+            mouseDown = false;
+            var diff = mouseStartX - e.clientX;
+            if (Math.abs(diff) > 50) {
+                if (diff > 0) nextPage();
+                else prevPage();
+            }
+        });
+        container.addEventListener('mouseleave', function() { mouseDown = false; });
+
+        // Export: images
+        document.getElementById('btnImages').addEventListener('click', function() {
+            bookData.forEach(function(page, i) {
+                var a = document.createElement('a');
+                a.href = page.image;
+                a.download = 'page_' + i + '.jpg';
+                a.click();
+            });
+        });
+
+        // Export: print/PDF
+        document.getElementById('btnPrint').addEventListener('click', function() {
+            window.print();
+        });
+
+        // Share tip
+        document.getElementById('btnShare').addEventListener('click', function() {
+            alert('分享方法：\n\n1. 使用 --share 参数重新生成\n2. 会创建 share.html 文件\n3. 直接发送给朋友即可打开\n\n命令：./storybook-go "主题" --share');
+        });
+
+        init();
+    })();
+    </script>
+</body>
+</html>

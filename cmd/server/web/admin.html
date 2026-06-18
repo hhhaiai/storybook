@@ -1,0 +1,1510 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Storybook 控制台</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"PingFang SC","Microsoft YaHei",sans-serif;background:#0f1117;color:#e5e5e5;min-height:100vh}
+.layout{display:flex;height:100vh}
+
+/* 左侧面板 */
+aside{width:440px;min-width:360px;background:#15171f;border-right:1px solid #222;padding:20px;display:flex;flex-direction:column;gap:12px;overflow:auto;flex-shrink:0}
+h1{font-size:20px;font-weight:700;letter-spacing:.5px;background:linear-gradient(135deg,#4f8cff,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+label{font-size:12px;opacity:.6;margin-bottom:4px;display:block}
+input,textarea{width:100%;padding:10px 12px;border:1px solid #2a2d37;background:#11131a;color:#fff;border-radius:8px;font-size:13px;outline:none;transition:border .2s}
+input:focus,textarea:focus{border-color:#4f8cff}
+select{width:100%;padding:10px 12px;border:1px solid #2a2d37;background:#11131a;color:#fff;border-radius:8px;font-size:13px;outline:none;cursor:pointer}
+select:focus{border-color:#4f8cff}
+textarea.prompt-box{height:360px;font-size:11.5px;line-height:1.6;font-family:"SF Mono",Monaco,monospace;resize:vertical}
+.row{display:flex;gap:10px}
+.row>*{flex:1}
+.char-count{font-size:10px;opacity:.35;text-align:right;margin-top:2px}
+button.primary{cursor:pointer;border:0;border-radius:10px;padding:12px 14px;background:linear-gradient(135deg,#4f8cff,#7b61ff);color:#fff;font-weight:600;font-size:14px;width:100%;transition:opacity .2s}
+button.primary:hover{opacity:.9}
+button.primary:disabled{opacity:.4;cursor:default}
+small.muted{opacity:.35;font-size:11px;line-height:1.5}
+
+/* 右侧主区域 */
+main{flex:1;padding:24px;overflow:auto;display:flex;flex-direction:column}
+
+/* 顶部操作栏 */
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-shrink:0}
+.topbar .section-title{font-size:16px;font-weight:600;display:flex;align-items:center;gap:8px}
+.topbar .count{font-size:12px;background:#232733;padding:2px 8px;border-radius:6px;opacity:.6}
+.topbar .actions{display:flex;gap:8px;align-items:center}
+.btn-sm{padding:6px 14px;border-radius:8px;font-size:12px;cursor:pointer;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#e5e5e5;transition:all .2s}
+.btn-sm:hover{background:rgba(255,255,255,.12)}
+.btn-sm.danger{background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.3);color:#f87171}
+.btn-sm.danger:hover{background:rgba(239,68,68,.25)}
+.btn-sm.primary-sm{background:rgba(79,140,255,.15);border-color:rgba(79,140,255,.3);color:#60a5fa}
+.btn-sm.primary-sm:hover{background:rgba(79,140,255,.25)}
+.select-info{font-size:12px;color:#60a5fa}
+
+/* 底部悬浮操作栏 */
+.select-bar{position:sticky;bottom:0;left:0;right:0;padding:14px 20px;background:rgba(21,23,31,.95);backdrop-filter:blur(12px);border-top:1px solid #2a2d37;display:flex;align-items:center;justify-content:space-between;border-radius:0 0 14px 14px;transform:translateY(100%);opacity:0;transition:all .25s ease;pointer-events:none;z-index:10}
+.select-bar.show{transform:translateY(0);opacity:1;pointer-events:auto}
+.select-bar .select-info{font-size:13px;font-weight:500}
+.select-bar .select-actions{display:flex;gap:8px}
+.select-bar .btn-sm{padding:8px 18px;font-size:13px}
+
+/* 设置按钮 */
+.btn-settings{padding:6px 14px;border-radius:8px;font-size:13px;cursor:pointer;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#e5e5e5;transition:all .2s;display:flex;align-items:center;gap:6px}
+.btn-settings:hover{background:rgba(255,255,255,.12)}
+.btn-settings.active{background:rgba(79,140,255,.15);border-color:rgba(79,140,255,.3);color:#60a5fa}
+
+/* 故事卡片网格 */
+.story-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}
+
+/* 卡片 */
+.card{background:#15171f;border:1px solid #222;border-radius:14px;overflow:hidden;transition:all .25s;position:relative;user-select:none;-webkit-user-select:none}
+.card:hover{border-color:#333}
+.card.done{cursor:pointer}
+.card.done:hover{border-color:#4f8cff;transform:translateY(-2px);box-shadow:0 6px 24px rgba(79,140,255,.1)}
+
+/* 多选模式 */
+.card.select-mode{cursor:pointer}
+.card.select-mode:hover{border-color:#4f8cff}
+.card .check-mark{position:absolute;top:10px;left:10px;width:22px;height:22px;border-radius:50%;border:2px solid rgba(255,255,255,.3);background:rgba(0,0,0,.4);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;z-index:3;transition:all .2s}
+.card.select-mode .check-mark{display:flex}
+.card.selected .check-mark{background:#4f8cff;border-color:#4f8cff}
+.card.selected .check-mark::after{content:'✓';color:#fff;font-size:13px;font-weight:700}
+.card.selected{border-color:#4f8cff;box-shadow:0 0 0 2px rgba(79,140,255,.25)}
+
+/* 卡片缩略图 */
+.card-thumb{width:100%;aspect-ratio:16/10;background:#111;overflow:hidden;position:relative}
+.card-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.card-thumb .placeholder{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:32px;opacity:.12}
+
+/* 生成中 shimmer */
+.card.running .card-thumb{background:linear-gradient(110deg,#111 30%,#1a1d27 50%,#111 70%);background-size:200% 100%;animation:shimmer 1.5s ease-in-out infinite}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+/* 进度覆盖 */
+.card-progress{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.5);backdrop-filter:blur(4px);gap:8px}
+.progress-ring{width:50px;height:50px}
+.progress-ring circle{fill:none;stroke-width:4;stroke-linecap:round;transform:rotate(-90deg);transform-origin:50% 50%}
+.progress-ring .bg{stroke:rgba(255,255,255,.1)}
+.progress-ring .fill{stroke:#4f8cff;transition:stroke-dashoffset .4s ease}
+.progress-pct{font-size:12px;font-weight:600;color:#fff}
+.progress-phase{font-size:10px;color:rgba(255,255,255,.5)}
+
+/* 卡片内容 */
+.card-body{padding:12px 14px}
+.card-body h3{font-size:13px;font-weight:600;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card-meta{display:flex;gap:8px;font-size:11px;opacity:.45;margin-bottom:8px}
+.card-actions{display:flex;gap:6px}
+.card-actions a{font-size:11px;color:#60a5fa;text-decoration:none;padding:4px 10px;border-radius:6px;background:rgba(79,140,255,.1);transition:background .2s}
+.card-actions a:hover{background:rgba(79,140,255,.2)}
+.card-actions button{font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid transparent;cursor:pointer;transition:all .2s}
+.btn-cancel{background:rgba(255,107,107,.12);color:#ff6b6b;border-color:rgba(255,107,107,.3)}
+.btn-cancel:hover{background:rgba(255,107,107,.22)}
+.btn-resume{background:rgba(74,222,128,.12);color:#4ade80;border-color:rgba(74,222,128,.3)}
+.btn-resume:hover{background:rgba(74,222,128,.22)}
+
+/* 状态 badge */
+.badge{position:absolute;top:10px;right:10px;font-size:16px;z-index:2}
+.card-phase{display:flex;align-items:center;gap:6px;font-size:11px;opacity:.5;margin-top:4px}
+.card-phase .dot{width:6px;height:6px;border-radius:50%;background:#4f8cff;animation:pulse 1.5s ease infinite}
+@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}
+
+/* ===== 设置页面 ===== */
+.settings-panel{flex:1;overflow:auto;display:none;flex-direction:column;gap:0}
+.settings-panel.active{display:flex}
+.settings-section{background:#15171f;border:1px solid #222;border-radius:14px;padding:20px;margin-bottom:16px}
+.settings-section h3{font-size:14px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:8px;color:#e5e5e5}
+.settings-section h3 .icon{font-size:16px}
+.settings-row{display:flex;gap:12px;margin-bottom:12px;align-items:flex-end}
+.settings-row label{margin-bottom:0;min-width:70px;padding-bottom:10px}
+.settings-row input,.settings-row select{flex:1}
+.settings-row .col{flex:1;display:flex;flex-direction:column}
+.settings-row .col label{margin-bottom:4px}
+.settings-actions{display:flex;gap:8px;margin-top:8px}
+
+/* 模型管理 */
+.model-list{display:flex;flex-direction:column;gap:6px;max-height:200px;overflow:auto;margin:8px 0}
+.model-item{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#11131a;border:1px solid #222;border-radius:8px;font-size:12px}
+.model-item .model-id{flex:1;font-family:monospace;color:#60a5fa}
+.model-item .model-type{font-size:10px;padding:2px 8px;border-radius:4px;background:rgba(79,140,255,.1);color:#60a5fa}
+.model-item .model-type.image{background:rgba(168,85,247,.1);color:#c084fc}
+.model-item .model-type.vision{background:rgba(34,197,94,.1);color:#4ade80}
+.model-item .del-btn{cursor:pointer;opacity:.4;transition:opacity .2s;font-size:14px;background:none;border:none;color:#f87171}
+.model-item .del-btn:hover{opacity:1}
+.model-add-row{display:flex;gap:8px;align-items:flex-end;margin-top:8px}
+.model-add-row input,.model-add-row select{flex:1}
+.model-add-row .mini-col{display:flex;flex-direction:column;gap:4px}
+.model-add-row .mini-col label{font-size:11px;opacity:.5}
+
+/* 渠道管理 */
+.provider-list{display:flex;flex-direction:column;gap:8px;margin:8px 0}
+.provider-item{display:flex;align-items:center;gap:12px;padding:12px;background:#11131a;border:1px solid #222;border-radius:8px}
+.provider-item .provider-name{flex:1;font-weight:500;color:#e5e5e5}
+.provider-item .provider-url{font-size:11px;font-family:monospace;color:#888;opacity:.7}
+.provider-item .provider-protocol{font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(34,197,94,.1);color:#4ade80}
+.provider-item .provider-models{font-size:11px;color:#888}
+.provider-item .btn-refresh{cursor:pointer;padding:4px 8px;font-size:11px;background:rgba(79,140,255,.1);border:1px solid #4f8cff;border-radius:4px;color:#60a5fa;transition:all .2s}
+.provider-item .btn-refresh:hover{background:rgba(79,140,255,.2)}
+.provider-item .btn-delete{cursor:pointer;padding:4px 8px;font-size:11px;background:rgba(248,113,113,.1);border:1px solid #f87171;border-radius:4px;color:#f87171;transition:all .2s}
+.provider-item .btn-delete:hover{background:rgba(248,113,113,.2)}
+
+/* 远程模型列表 */
+.remote-models{max-height:160px;overflow:auto;display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.remote-model-tag{font-size:11px;padding:4px 10px;border-radius:6px;background:rgba(255,255,255,.06);border:1px solid #2a2d37;cursor:pointer;transition:all .2s;font-family:monospace}
+.remote-model-tag:hover{border-color:#4f8cff;background:rgba(79,140,255,.1)}
+.remote-model-tag.selected{border-color:#4f8cff;background:rgba(79,140,255,.2);color:#60a5fa}
+.remote-model-tag.text-type{border-left:2px solid #4f8cff}
+.remote-model-tag.image-type{border-left:2px solid #a78bfa}
+
+/* 故事风格标签 */
+.story-style-tags{display:flex;flex-wrap:wrap;gap:5px;margin:4px 0 2px}
+
+/* 模型预设快速选择 */
+.model-presets{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}
+.model-preset{font-size:10px;padding:4px 8px;border-radius:6px;background:rgba(255,255,255,.04);border:1px solid #2a2d37;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:3px}
+.model-preset:hover{border-color:#4f8cff;background:rgba(79,140,255,.08)}
+.model-preset.active{border-color:#4f8cff;background:rgba(79,140,255,.15);color:#60a5fa}
+.model-preset .mp-type{font-size:8px;padding:1px 4px;border-radius:3px;background:rgba(255,255,255,.06)}
+.model-preset .mp-type.image{background:rgba(168,85,247,.15);color:#c084fc}
+.model-preset .mp-type.text{background:rgba(79,140,255,.15);color:#60a5fa}
+
+/* Modal 模态对话框 */
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:998;display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.modal-overlay.show{display:flex}
+.modal-dialog{background:#15171f;border:1px solid #333;border-radius:14px;padding:24px;width:90%;max-width:480px;box-shadow:0 8px 32px rgba(0,0,0,.4)}
+.modal-header{font-size:16px;font-weight:600;margin-bottom:20px;display:flex;align-items:center;gap:8px}
+.modal-body{display:flex;flex-direction:column;gap:14px}
+.modal-field{display:flex;flex-direction:column;gap:4px}
+.modal-field label{font-size:12px;opacity:.6}
+.modal-field input{width:100%;padding:10px 12px;border:1px solid #2a2d37;background:#11131a;color:#fff;border-radius:8px;font-size:13px;outline:none}
+.modal-field input:focus{border-color:#4f8cff}
+.modal-footer{display:flex;gap:8px;margin-top:20px}
+.modal-footer button{flex:1;padding:10px;border:none;border-radius:8px;font-size:13px;cursor:pointer;transition:all .2s}
+.modal-btn-cancel{background:rgba(255,255,255,.06);color:#e5e5e5}
+.modal-btn-cancel:hover{background:rgba(255,255,255,.12)}
+.modal-btn-confirm{background:linear-gradient(135deg,#4f8cff,#7b61ff);color:#fff;font-weight:600}
+.modal-btn-confirm:hover{opacity:.9}
+
+/* Toast */
+.toast{position:fixed;bottom:24px;right:24px;padding:10px 20px;border-radius:10px;font-size:13px;background:#232733;border:1px solid #333;color:#e5e5e5;z-index:999;opacity:0;transform:translateY(10px);transition:all .3s}
+.toast.show{opacity:1;transform:translateY(0)}
+.toast.success{border-color:rgba(34,197,94,.4);color:#4ade80}
+.toast.error{border-color:rgba(239,68,68,.4);color:#f87171}
+
+/* 图片风格选择 */
+.style-tags{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 2px}
+.style-tag{font-size:11px;padding:5px 10px;border-radius:8px;background:rgba(255,255,255,.04);border:1px solid #2a2d37;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:4px;user-select:none;-webkit-user-select:none}
+.style-tag:hover{border-color:#4f8cff;background:rgba(79,140,255,.08)}
+.style-tag.active{border-color:#4f8cff;background:rgba(79,140,255,.15);color:#60a5fa}
+.style-tag .tag-icon{font-size:13px}
+.style-tag .tag-name{font-weight:500}
+.style-tag .tag-desc{opacity:.5;font-size:10px;margin-left:2px}
+</style>
+</head>
+<body>
+<div class="layout">
+<!-- 左侧面板 -->
+<aside>
+  <h1>📖 Storybook</h1>
+  <label>提示词模板</label>
+  <select id="presetSelect" onchange="applyPreset(this.value)"></select>
+  <label>故事提示词</label>
+  <textarea id="promptText" class="prompt-box" oninput="updateCharCount()"></textarea>
+  <div class="char-count" id="charCount">0</div>
+  <div class="row">
+    <div><label>作品类型</label><select id="workType" onchange="onWorkTypeChange(this.value)"></select></div>
+  </div>
+  <label>故事风格（可多选）</label>
+  <div class="style-tags story-style-tags" id="storyStyleTags">
+    <span style="opacity:.3;font-size:11px">加载中...</span>
+  </div>
+  <label>图片画风（可多选）</label>
+  <div class="style-tags" id="styleTags">
+    <span style="opacity:.3;font-size:11px">加载中...</span>
+  </div>
+  <label>自定义补充描述（可选）</label>
+  <input id="theme" placeholder="如：小猫咪在月球上过生日，遇见了外星朋友..."/>
+  <div class="row">
+    <div><label>页数</label><input id="pageCount" type="number" value="20" min="12" max="30"/></div>
+    <div><label>数量</label><input id="count" type="number" value="1" min="1" max="10"/></div>
+  </div>
+  <button class="primary" id="btn">🚀 开始生成</button>
+</aside>
+
+<!-- 右侧主区域 -->
+<main>
+  <div class="topbar">
+    <div class="section-title">
+      <span id="sectionIcon">📚</span>
+      <span id="sectionTitle">绘本列表</span>
+      <span class="count" id="storyCount">0</span>
+    </div>
+    <div class="actions" id="actions">
+      <button class="btn-settings" id="settingsBtn" onclick="toggleSettings()">⚙️ 设置</button>
+    </div>
+  </div>
+
+  <!-- 绘本网格 -->
+  <div class="story-grid" id="storyGrid"></div>
+
+  <!-- 底部悬浮操作栏 -->
+  <div class="select-bar" id="selectBar">
+    <span class="select-info" id="selectCount">已选 0 项</span>
+    <div class="select-actions">
+      <button class="btn-sm" onclick="exitSelectMode()">取消</button>
+      <button class="btn-sm danger" onclick="deleteSelected()">🗑 删除</button>
+    </div>
+  </div>
+
+  <!-- 设置面板 -->
+  <div class="settings-panel" id="settingsPanel">
+    <!-- 基础连接设置 -->
+    <div class="settings-section">
+      <h3><span class="icon">🔗</span>API 连接设置</h3>
+      <div class="settings-row">
+        <div class="col">
+          <label>协议类型</label>
+          <select id="cfgProtocol">
+            <option value="openai-chat">OpenAI Chat Completions</option>
+            <option value="openai-response">OpenAI Responses</option>
+            <option value="claude">Claude (Anthropic)</option>
+            <option value="gemini">Google Gemini</option>
+          </select>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="col">
+          <label>API 地址</label>
+          <input id="cfgApiUrl" placeholder="https://api.example.com/v1"/>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="col">
+          <label>API Key</label>
+          <input id="cfgApiKey" type="password" placeholder="sk-..."/>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="col">
+          <label>输出路径</label>
+          <input id="cfgOutputPath" placeholder="outputs"/>
+        </div>
+      </div>
+      <div class="settings-actions">
+        <button class="btn-sm primary-sm" onclick="saveSettings()">💾 保存设置</button>
+        <button class="btn-sm" onclick="fetchRemoteModels()">🔄 获取模型列表</button>
+      </div>
+    </div>
+
+    <!-- 渠道管理 -->
+    <div class="settings-section">
+      <h3><span class="icon">🌐</span>渠道管理</h3>
+      <div class="provider-list" id="providerList"></div>
+      <div class="settings-actions">
+        <button class="btn-sm primary-sm" onclick="showAddProviderDialog()">➕ 添加渠道</button>
+      </div>
+    </div>
+
+    <!-- 模型选择 -->
+    <div class="settings-section">
+      <h3><span class="icon">🎯</span>模型选择</h3>
+      <div class="settings-row">
+        <div class="col">
+          <label>故事模型（文字对话）</label>
+          <select id="cfgTextModel"></select>
+        </div>
+      </div>
+      <div class="model-presets" id="cfgTextPresets" style="margin:-4px 0 12px"></div>
+      <div class="settings-row">
+        <div class="col">
+          <label>图片模型（图片生成）</label>
+          <select id="cfgImageModel"></select>
+        </div>
+      </div>
+      <div class="model-presets" id="cfgImagePresets" style="margin:-4px 0 12px"></div>
+      <div class="settings-actions">
+        <button class="btn-sm primary-sm" onclick="saveModelSelection()">💾 保存模型选择</button>
+      </div>
+    </div>
+
+    <!-- 模型管理 -->
+    <div class="settings-section">
+      <h3><span class="icon">🤖</span>模型管理</h3>
+
+      <div style="margin-bottom:12px">
+        <label style="margin-bottom:8px">远程可用模型 <span id="remoteModelStatus" style="opacity:.4;font-size:11px"></span></label>
+        <div class="remote-models" id="remoteModels">
+          <span style="opacity:.3;font-size:12px">点击「获取模型列表」加载</span>
+        </div>
+      </div>
+
+      <label style="margin-bottom:8px">自定义模型列表</label>
+      <div class="model-list" id="customModelList">
+        <span style="opacity:.3;font-size:12px;padding:8px">暂无自定义模型</span>
+      </div>
+
+      <label style="margin-top:12px;margin-bottom:6px">手动添加模型</label>
+      <div class="model-add-row">
+        <div class="mini-col" style="flex:2">
+          <label>模型 ID</label>
+          <input id="newModelId" placeholder="gpt-4o"/>
+        </div>
+        <div class="mini-col" style="flex:1">
+          <label>类型</label>
+          <select id="newModelType">
+            <option value="text">文字对话</option>
+            <option value="image">图片生成</option>
+            <option value="vision">识别图片</option>
+          </select>
+        </div>
+        <div class="mini-col" style="flex:1.5">
+          <label>名称（可选）</label>
+          <input id="newModelName" placeholder="GPT-4o"/>
+        </div>
+        <div class="mini-col" style="flex:1.4">
+          <label>协议格式</label>
+          <select id="newModelProtocol">
+            <option value="">使用全局/渠道</option>
+            <option value="openai-chat">OpenAI Chat</option>
+            <option value="openai-response">OpenAI Responses</option>
+            <option value="claude">Claude</option>
+            <option value="gemini">Gemini</option>
+          </select>
+        </div>
+      </div>
+      <div class="model-add-row" style="margin-top:8px">
+        <div class="mini-col" style="flex:2">
+          <label>API 端点（可选）</label>
+          <input id="newModelBaseURL" placeholder="https://api.openai.com/v1"/>
+        </div>
+        <div class="mini-col" style="flex:2">
+          <label>API 密钥（可选）</label>
+          <input id="newModelAPIKey" type="password" placeholder="sk-..."/>
+        </div>
+        <button class="btn-sm primary-sm" onclick="addCustomModel()" style="margin-bottom:0;height:38px">➕ 添加</button>
+      </div>
+      <small class="muted" style="display:block;margin-top:6px">
+        💡 提示：如果填写端点和密钥，该模型将使用独立供应商；留空则使用全局配置
+      </small>
+    </div>
+  </div>
+</main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ===== 全局状态 =====
+var runningJobs={};
+var presets=[];
+var presetTheme="";
+var selectMode=false;
+var selectedSet={};
+var showingSettings=false;
+var remoteModels=[];
+var customModels=[];
+
+// ===== 工具函数 =====
+function $(id){return document.getElementById(id)}
+function esc(s){return s?s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'):''}
+function toast(msg,type){
+  var el=$('toast');
+  el.textContent=msg;
+  el.className='toast show'+(type==='error'?' error':type==='success'?' success':'');
+  setTimeout(function(){el.className='toast'},2500);
+}
+
+// ===== 设置页面切换 =====
+function toggleSettings(){
+  showingSettings=!showingSettings;
+  var btn=$('settingsBtn');
+  var grid=$('storyGrid');
+  var panel=$('settingsPanel');
+  if(showingSettings){
+    btn.classList.add('active');
+    btn.textContent='📚 返回列表';
+    grid.style.display='none';
+    panel.classList.add('active');
+    $('sectionIcon').textContent='⚙️';
+    $('sectionTitle').textContent='设置';
+    $('storyCount').textContent='';
+    $('actions').innerHTML='<button class="btn-settings active" onclick="toggleSettings()">📚 返回列表</button>';
+  }else{
+    grid.style.display='';
+    panel.classList.remove('active');
+    $('sectionIcon').textContent='📚';
+    $('sectionTitle').textContent='绘本列表';
+    renderActions();
+    loadStories();
+  }
+}
+
+// ===== 配置加载 =====
+// ===== 图片风格选择 =====
+var stylePresets=[];
+var selectedStyles=[];
+
+function loadStyles(){
+  fetch('/api/styles').then(function(r){return r.json()}).then(function(d){
+    stylePresets=d.presets||[];
+    selectedStyles=d.selected||['soft_flat'];
+    renderStyleTags();
+  });
+}
+
+function renderStyleTags(){
+  var el=$('styleTags');
+  var html='';
+  stylePresets.forEach(function(s){
+    var isActive=selectedStyles.indexOf(s.id)>=0;
+    html+='<div class="style-tag'+(isActive?' active':'')+'" onclick="toggleStyle(\''+s.id+'\')">'
+      +'<span class="tag-icon">'+s.icon+'</span>'
+      +'<span class="tag-name">'+esc(s.name)+'</span>'
+      +'</div>';
+  });
+  el.innerHTML=html;
+}
+
+function toggleStyle(id){
+  var idx=selectedStyles.indexOf(id);
+  if(idx>=0){
+    selectedStyles.splice(idx,1);
+  }else{
+    selectedStyles.push(id);
+  }
+  renderStyleTags();
+  // 保存到配置
+  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    image_styles:selectedStyles
+  })});
+}
+
+// ===== 故事风格选择 =====
+var storyStylePresets=[];
+var selectedStoryStyles=[];
+
+function loadStoryStyles(){
+  fetch('/api/story-styles').then(function(r){return r.json()}).then(function(d){
+    storyStylePresets=d.presets||[];
+    selectedStoryStyles=d.selected||['warm-growth'];
+    renderStoryStyleTags();
+  });
+}
+
+function renderStoryStyleTags(){
+  var el=$('storyStyleTags');
+  if(!el) return;
+  var html='';
+  storyStylePresets.forEach(function(s){
+    var isActive=selectedStoryStyles.indexOf(s.id)>=0;
+    html+='<div class="style-tag'+(isActive?' active':'')+'" onclick="toggleStoryStyle(\''+s.id+'\')">'
+      +'<span class="tag-icon">'+s.icon+'</span>'
+      +'<span class="tag-name">'+esc(s.name)+'</span>'
+      +'</div>';
+  });
+  el.innerHTML=html;
+}
+
+function toggleStoryStyle(id){
+  var idx=selectedStoryStyles.indexOf(id);
+  if(idx>=0){selectedStoryStyles.splice(idx,1);}
+  else{selectedStoryStyles.push(id);}
+  renderStoryStyleTags();
+  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    story_styles:selectedStoryStyles
+  })});
+}
+
+// ===== 模型预设快速选择 =====
+var modelPresetsData=[];
+
+function loadModelPresets(){
+  return fetch('/api/model-presets').then(function(r){return r.json()}).then(function(d){
+    modelPresetsData=d||[];
+    renderModelPresets('textModelPresets','text','textModel');
+    renderModelPresets('imageModelPresets','image','imageModel');
+  });
+}
+
+function renderModelPresets(elId,type,selectId){
+  var el=$(elId);
+  if(!el) return;
+  var html='';
+  modelPresetsData.forEach(function(m){
+    if(m.type!==type) return;
+    html+='<div class="model-preset" onclick="selectModelPreset(\''+selectId+'\',\''+esc(m.id)+'\',\''+esc(m.base)+'\')">'
+      +'<span class="mp-type '+type+'">'+(type==='image'?'🎨':'💬')+'</span>'
+      +'<span>'+esc(m.name)+'</span>'
+      +'</div>';
+  });
+  el.innerHTML=html;
+}
+
+function selectModelPreset(selectId,modelId,baseUrl){
+  var sel=$(selectId);
+  // 检查下拉里有没有这个模型
+  var found=false;
+  for(var i=0;i<sel.options.length;i++){
+    if(sel.options[i].value===modelId){found=true;break;}
+  }
+  if(!found){
+    // 添加到下拉
+    var opt=document.createElement('option');
+    opt.value=modelId;opt.textContent=modelId;
+    sel.appendChild(opt);
+  }
+  sel.value=modelId;
+  // 如果有 base URL，自动填入
+  if(baseUrl&&$('cfgApiUrl')){$('cfgApiUrl').value=baseUrl;}
+  toast('已选择 '+modelId,'success');
+}
+
+// ===== 作品类型选择 =====
+var workTypePresets=[];
+var currentWorkType='kids-book';
+
+function loadWorkTypes(){
+  fetch('/api/work-types').then(function(r){return r.json()}).then(function(d){
+    workTypePresets=d.presets||[];
+    currentWorkType=d.selected||'kids-book';
+    var sel=$('workType');
+    var html='';
+    workTypePresets.forEach(function(w){
+      html+='<option value="'+esc(w.id)+'"'+(w.id===currentWorkType?' selected':'')+'>'+w.icon+' '+esc(w.name)+' — '+esc(w.desc)+'</option>';
+    });
+    sel.innerHTML=html;
+  });
+}
+
+function onWorkTypeChange(id){
+  currentWorkType=id;
+  // 找到对应的预设
+  var preset=null;
+  workTypePresets.forEach(function(w){if(w.id===id)preset=w;});
+  if(preset&&preset.page_range){
+    var parts=preset.page_range.split('-');
+    if(parts.length===2){
+      var mid=Math.round((+parts[0]+ +parts[1])/2);
+      $('pageCount').value=mid;
+    }
+  }
+  // 保存
+  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    work_type:id
+  })});
+  toast('已切换为 '+((preset&&preset.name)||id),'success');
+}
+
+function loadConfig(){
+  fetch('/api/config').then(function(r){return r.json()}).then(function(c){
+    $('cfgProtocol').value=c.protocol_type||'openai-chat';
+    $('cfgApiUrl').value=c.api_base_url||'';
+    $('cfgApiKey').value=c.api_key||'';
+    $('cfgOutputPath').value=c.output_path||'outputs';
+    if(c.work_type){$('workType').value=c.workType;currentWorkType=c.work_type;}
+    $('pageCount').value=c.page_count||20;
+    $('style').value=c.style||'温暖成长叙事';
+    if(c.image_styles&&c.image_styles.length){selectedStyles=c.image_styles;renderStyleTags();}
+    if(c.story_styles&&c.story_styles.length){selectedStoryStyles=c.story_styles;renderStoryStyleTags();}
+    $('count').value=c.batch_count||1;
+    if(c.theme) $('theme').value=c.theme;
+    customModels=c.custom_models||[];
+    renderCustomModels();
+    // 加载模型下拉
+    
+  });
+}
+
+// ===== 保存设置 =====
+function loadSettingsModels(cfg){
+  if(!cfg){
+    fetch('/api/config').then(function(r){return r.json()}).then(function(c){loadSettingsModels(c);});
+    return;
+  }
+  var models=cfg.custom_models||[];
+  var presets=modelPresetsData||[];
+  // Build text model select
+  var tSel=$('cfgTextModel');
+  var iSel=$('cfgImageModel');
+  var tOpts='<option value="">（使用默认）</option>';
+  var iOpts='<option value="">（使用默认）</option>';
+  // From presets
+  presets.forEach(function(m){
+    if(m.type==='text'){
+      tOpts+='<option value="'+esc(m.id)+'"'+(cfg.text_model===m.id?' selected':'')+'>'+esc(m.name)+' ('+esc(m.id)+')</option>';
+    }
+    if(m.type==='image'){
+      iOpts+='<option value="'+esc(m.id)+'"'+(cfg.image_model===m.id?' selected':'')+'>'+esc(m.name)+' ('+esc(m.id)+')</option>';
+    }
+  });
+  // From custom models
+  models.forEach(function(m){
+    var label=m.name||m.id;
+    var providerHint='';
+    if(m.base_url){
+      var hostname=m.base_url.replace(/^https?:\/\//,'').split('/')[0];
+      providerHint=' ['+hostname+']';
+    }else if(m.provider){
+      providerHint=' ['+m.provider+']';
+    }else{
+      providerHint=' (自定义)';
+    }
+    if(m.type==='text'||m.type==='vision'){
+      tOpts+='<option value="'+esc(m.id)+'"'+(cfg.text_model===m.id?' selected':'')+'>'+esc(label)+providerHint+'</option>';
+    }
+    if(m.type==='image'){
+      iOpts+='<option value="'+esc(m.id)+'"'+(cfg.image_model===m.id?' selected':'')+'>'+esc(label)+providerHint+'</option>';
+    }
+  });
+  tSel.innerHTML=tOpts;
+  iSel.innerHTML=iOpts;
+  // Render preset buttons
+  renderCfgModelPresets('cfgTextPresets','text','cfgTextModel');
+  renderCfgModelPresets('cfgImagePresets','image','cfgImageModel');
+}
+
+function renderCfgModelPresets(elId,type,selectId){
+  var el=$(elId);
+  if(!el) return;
+  var html='';
+  modelPresetsData.forEach(function(m){
+    if(m.type!==type) return;
+    html+='<div class="model-preset" onclick="selectCfgModel(\''+selectId+'\',\''+esc(m.id)+'\',\''+esc(m.base)+'\')">'
+      +'<span class="mp-type '+type+'">'+(type==='image'?'🎨':'💬')+'</span>'
+      +'<span>'+esc(m.name)+'</span>'
+      +'</div>';
+  });
+  el.innerHTML=html;
+}
+
+function selectCfgModel(selectId,modelId,baseUrl){
+  var sel=$(selectId);
+  var found=false;
+  for(var i=0;i<sel.options.length;i++){
+    if(sel.options[i].value===modelId){found=true;break;}
+  }
+  if(!found){
+    var opt=document.createElement('option');
+    opt.value=modelId;opt.textContent=modelId;
+    sel.appendChild(opt);
+  }
+  sel.value=modelId;
+  if(baseUrl&&$('cfgApiUrl')){$('cfgApiUrl').value=baseUrl;}
+}
+
+function saveModelSelection(){
+  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    text_model:$('cfgTextModel').value,
+    image_model:$('cfgImageModel').value,
+    api_base_url:$('cfgApiUrl').value,
+    api_key:$('cfgApiKey').value
+  })}).then(function(r){return r.json()}).then(function(){
+    toast('模型选择已保存','success');
+  });
+}
+
+function saveSettings(){
+  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    protocol_type:$('cfgProtocol').value,
+    api_base_url:$('cfgApiUrl').value,
+    api_key:$('cfgApiKey').value,
+    output_path:$('cfgOutputPath').value
+  })}).then(function(r){return r.json()}).then(function(c){
+    toast('设置已保存','success');
+    // 重新加载模型下拉
+    
+  }).catch(function(){toast('保存失败','error')});
+}
+
+// ===== 渠道管理 =====
+function loadProviders(){
+  fetch('/api/providers').then(function(r){return r.json()}).then(function(providers){
+    var html='';
+    if(!providers || providers.length===0){
+      html='<div style="text-align:center;opacity:.3;padding:20px;font-size:12px">暂无渠道，点击下方添加</div>';
+    }else{
+      // 获取当前配置
+      fetch('/api/config').then(function(r){return r.json()}).then(function(config){
+        var currentProviderId = config.current_provider || '';
+        providers.forEach(function(p){
+          var modelCount=(p.models||[]).length;
+          var isCurrent = p.id === currentProviderId;
+          var activeClass = isCurrent ? ' provider-active' : '';
+          html+='<div class="provider-item'+activeClass+'">'
+            +'<div style="flex:1">'
+              +'<div class="provider-name">'+esc(p.name)+(isCurrent?' <span style="color:#4f8cff;font-size:11px">✓ 当前</span>':'')+'</div>'
+              +'<div class="provider-url">'+esc(p.base_url)+'</div>'
+            +'</div>'
+            +'<span class="provider-protocol">'+esc(p.protocol||'auto')+'</span>'
+            +'<span class="provider-models">'+modelCount+' 个模型</span>'
+            +(isCurrent?''
+              :'<button class="btn-switch" onclick="switchProvider(\''+esc(p.id)+'\')">切换</button>')
+            +'<button class="btn-refresh" onclick="refreshProviderModels(\''+esc(p.id)+'\')">🔄</button>'
+            +'<button class="btn-delete" onclick="deleteProvider(\''+esc(p.id)+'\')">🗑️</button>'
+          +'</div>';
+        });
+        $('providerList').innerHTML=html;
+      });
+    }
+    if(providers && providers.length===0){
+      $('providerList').innerHTML=html;
+    }
+  });
+}
+
+function showAddProviderDialog(){
+  document.getElementById('addProviderModal').classList.add('show');
+  document.getElementById('providerName').value='';
+  document.getElementById('providerBaseURL').value='';
+  document.getElementById('providerAPIKey').value='';
+  document.getElementById('providerProtocol').value='auto';
+  document.getElementById('providerName').focus();
+}
+
+function closeAddProviderModal(){
+  document.getElementById('addProviderModal').classList.remove('show');
+}
+
+function confirmAddProvider(){
+  var name=document.getElementById('providerName').value.trim();
+  var baseURL=document.getElementById('providerBaseURL').value.trim();
+  var apiKey=document.getElementById('providerAPIKey').value.trim();
+  var selectedProtocol=document.getElementById('providerProtocol').value||'auto';
+
+  if(!name){
+    toast('请输入渠道名称','error');
+    document.getElementById('providerName').focus();
+    return;
+  }
+  if(!baseURL){
+    toast('请输入API端点','error');
+    document.getElementById('providerBaseURL').focus();
+    return;
+  }
+  if(!apiKey){
+    toast('请输入API密钥','error');
+    document.getElementById('providerAPIKey').focus();
+    return;
+  }
+
+  closeAddProviderModal();
+  toast('正在探测协议...','info');
+
+  // 探测协议并获取模型
+  fetch('/api/providers/detect',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({base_url:baseURL,api_key:apiKey,protocol:selectedProtocol})
+  }).then(function(r){return r.json()}).then(function(result){
+    var protocol=result.protocol||'openai';
+    var models=(result.models||[]).map(function(m){return m.id||m});
+
+    // 创建渠道
+    var providerId='provider-'+Date.now();
+    fetch('/api/providers',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        id:providerId,
+        name:name,
+        base_url:baseURL,
+        api_key:apiKey,
+        protocol:protocol,
+        models:models
+      })
+    }).then(function(r){return r.json()}).then(function(){
+      toast('渠道添加成功，发现 '+models.length+' 个模型','success');
+      loadProviders();
+      // 自动将渠道的模型添加到自定义模型列表
+      addProviderModelsToCustom(providerId,name,baseURL,apiKey,protocol,models);
+    }).catch(function(){toast('添加失败','error')});
+  }).catch(function(){
+    toast('协议探测失败，使用默认 OpenAI 协议','warning');
+  });
+}
+
+function addProviderModelsToCustom(providerId,providerName,baseURL,apiKey,protocol,modelIds){
+  // 将渠道的模型批量添加到自定义模型
+  modelIds.forEach(function(modelId){
+    var type='text'; // 默认文本模型
+    var lower=(modelId||'').toLowerCase();
+    if(lower.indexOf('image')>=0||lower.indexOf('dall')>=0||lower.indexOf('imagine')>=0||lower.indexOf('flux')>=0||lower.indexOf('stable')>=0||lower.indexOf('midjourney')>=0||lower.indexOf('paint')>=0||lower.indexOf('draw')>=0||lower.indexOf('pic')>=0) type='image';
+    if(lower.indexOf('vision')>=0||lower.indexOf('ocr')>=0||lower.indexOf('vl')>=0) type='vision';
+
+    var entryId=providerId+'::'+modelId;
+    var entry={
+      id:entryId,
+      model:modelId,
+      name:modelId+' ['+providerName+']',
+      type:type,
+      protocol:protocol,
+      provider:providerId
+    };
+
+    // 检查是否已存在
+    var exists=false;
+    fetch('/api/models/custom').then(function(r){return r.json()}).then(function(existing){
+      var existingModels=existing.models||existing||[];
+      existingModels.forEach(function(e){
+        if(e.id===entryId) exists=true;
+      });
+      if(!exists){
+        fetch('/api/models/custom',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(entry)
+        }).then(function(r){return r.json()}).then(function(d){
+          customModels=d.models||customModels;
+          renderCustomModels();
+          loadSettingsModels();
+        });
+      }
+    });
+  });
+}
+
+function refreshProviderModels(providerId){
+  toast('正在刷新模型列表...','info');
+  fetch('/api/providers/pull-models',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({provider_id:providerId})
+  }).then(function(r){return r.json()}).then(function(result){
+    if(result.ok){
+      toast('刷新成功，发现 '+result.count+' 个模型','success');
+      loadProviders();
+      loadConfig();
+      loadSettingsModels(); // 刷新模型选择列表
+    }else{
+      toast('刷新失败: '+(result.error||'未知错误'),'error');
+    }
+  }).catch(function(){
+    toast('请求失败','error');
+  });
+}
+
+function switchProvider(providerId){
+  fetch('/api/providers/switch',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({provider_id:providerId})
+  }).then(function(r){return r.json()}).then(function(result){
+    if(result.ok){
+      toast('已切换渠道','success');
+      loadProviders();
+      loadConfig(); // 重新加载配置
+    }else{
+      toast('切换失败','error');
+    }
+  }).catch(function(){
+    toast('请求失败','error');
+  });
+}
+
+function deleteProvider(providerId){
+  if(!confirm('确定删除此渠道？相关模型不会被删除。')) return;
+  fetch('/api/providers?id='+encodeURIComponent(providerId),{method:'DELETE'})
+    .then(function(r){return r.json()})
+    .then(function(){
+      toast('已删除','success');
+      loadProviders();
+    }).catch(function(){toast('删除失败','error')});
+}
+
+// ===== 获取远程模型列表 =====
+function fetchRemoteModels(){
+  var status=$('remoteModelStatus');
+  status.textContent='加载中...';
+  fetch('/api/models').then(function(r){return r.json()}).then(function(d){
+    if(d.error){
+      status.textContent='⚠ '+d.error;
+      remoteModels=[];
+    }else{
+      status.textContent='('+d.models.length+' 个模型)';
+      remoteModels=d.models||[];
+    }
+    renderRemoteModels();
+  }).catch(function(e){
+    status.textContent='请求失败';
+    toast('获取模型列表失败','error');
+  });
+}
+
+// ===== 渲染远程模型列表 =====
+function renderRemoteModels(){
+  var el=$('remoteModels');
+  if(!remoteModels.length){
+    el.innerHTML='<span style="opacity:.3;font-size:12px">无可用模型</span>';
+    return;
+  }
+  var html='';
+  remoteModels.forEach(function(m){
+    var typeClass=classifyModel(m);
+    html+='<div class="remote-model-tag '+typeClass+'-type" onclick="quickAddModel(\''+esc(m)+'\',\''+typeClass+'\')" title="点击添加">'+esc(m)+'</div>';
+  });
+  el.innerHTML=html;
+}
+
+// ===== 模型分类启发式 =====
+function classifyModel(id){
+  var lower=id.toLowerCase();
+  // 图片生成模型关键词
+  if(lower.indexOf('image')>=0||lower.indexOf('dall')>=0||lower.indexOf('imagine')>=0
+    ||lower.indexOf('flux')>=0||lower.indexOf('stable')>=0||lower.indexOf('midjourney')>=0
+    ||lower.indexOf('paint')>=0||lower.indexOf('draw')>=0||lower.indexOf('pic')>=0){
+    return 'image';
+  }
+  // 视觉/识别模型关键词
+  if(lower.indexOf('vision')>=0||lower.indexOf('ocr')>=0||lower.indexOf('vl')>=0){
+    return 'vision';
+  }
+  return 'text';
+}
+
+// ===== 快速添加远程模型 =====
+function quickAddModel(id,type){
+  // 检查是否已存在
+  for(var i=0;i<customModels.length;i++){
+    if(customModels[i].id===id){toast('模型已存在');return;}
+  }
+  var entry={id:id,name:id,type:type,protocol:($('cfgProtocol')&&$('cfgProtocol').value)||''};
+  fetch('/api/models/custom',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(entry)})
+    .then(function(r){return r.json()}).then(function(d){
+      customModels=d.models||[];
+      renderCustomModels();
+      loadSettingsModels();
+      toast('已添加 '+id,'success');
+    });
+}
+
+// ===== 自定义模型管理 =====
+function addCustomModel(){
+  var id=$('newModelId').value.trim();
+  var type=$('newModelType').value;
+  var name=$('newModelName').value.trim()||id;
+  var baseURL=$('newModelBaseURL').value.trim();
+  var apiKey=$('newModelAPIKey').value.trim();
+  var protocol=$('newModelProtocol').value;
+  if(!id){toast('请输入模型ID','error');return;}
+  var payload={id:id,type:type,name:name};
+  if(baseURL)payload.base_url=baseURL;
+  if(apiKey)payload.api_key=apiKey;
+  if(protocol)payload.protocol=protocol;
+  fetch('/api/models/custom',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+    .then(function(r){return r.json()}).then(function(d){
+      customModels=d.models||[];
+      renderCustomModels();
+      loadSettingsModels();
+
+      $('newModelId').value='';
+      $('newModelName').value='';
+      $('newModelBaseURL').value='';
+      $('newModelAPIKey').value='';
+      $('newModelProtocol').value='';
+      toast('已添加模型 '+id,'success');
+    });
+}
+
+function removeCustomModel(id){
+  fetch('/api/models/custom',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})})
+    .then(function(r){return r.json()}).then(function(d){
+      customModels=d.models||[];
+      renderCustomModels();
+      loadSettingsModels();
+      toast('已删除模型','success');
+    });
+}
+
+function protocolLabel(p){
+  var v=(p||'').toLowerCase();
+  if(v==='openai'||v==='openai-chat'||v==='openaichat') return 'OpenAI Chat';
+  if(v==='responses'||v==='openai-response'||v==='openai-responses'||v==='openairesponse') return 'Responses';
+  if(v==='claude'||v==='anthropic') return 'Claude';
+  if(v==='gemini') return 'Gemini';
+  return p||'';
+}
+
+function renderCustomModels(){
+  var el=$('customModelList');
+  if(!customModels||!customModels.length){
+    el.innerHTML='<span style="opacity:.3;font-size:12px;padding:8px">暂无自定义模型</span>';
+    return;
+  }
+  var html='';
+  customModels.forEach(function(m){
+    var typeLabel=m.type==='text'?'文字对话':m.type==='image'?'图片生成':'识别图片';
+    var providerLabel='';
+    if(m.base_url){
+      var hostname=m.base_url.replace(/^https?:\/\//,'').split('/')[0];
+      providerLabel=' <span style="opacity:.5;font-size:10px">['+hostname+']</span>';
+    }else if(m.provider){
+      providerLabel=' <span style="opacity:.5;font-size:10px">['+m.provider+']</span>';
+    }
+    var protoLabel=protocolLabel(m.protocol);
+    html+='<div class="model-item">'
+      +'<span class="model-id">'+esc(m.model||m.id)+providerLabel+'</span>'
+      +(protoLabel?'<span class="model-type">'+esc(protoLabel)+'</span>':'')
+      +'<span class="model-type '+(m.type||'text')+'">'+typeLabel+'</span>'
+      +'<button class="del-btn" onclick="removeCustomModel(\''+esc(m.id)+'\')">✕</button>'
+      +'</div>';
+  });
+  el.innerHTML=html;
+}
+
+// model selects moved to settings page
+
+
+// ===== 提示词预设 =====
+function loadPresets(){
+  fetch('/api/presets').then(function(r){return r.json()}).then(function(data){
+    presets=data;
+    var sel=$('presetSelect');
+    var html='<option value="">（自定义提示词）</option>';
+    data.forEach(function(p){
+      html+='<option value="'+esc(p.id)+'">'+esc(p.name)+' — '+esc(p.desc)+'</option>';
+    });
+    sel.innerHTML=html;
+  });
+}
+
+function applyPreset(id){
+  if(!id){
+    $('promptText').value='';
+    $('theme').value='';
+    presetTheme="";
+    updateCharCount();
+    return;
+  }
+  var p=null;
+  presets.forEach(function(x){if(x.id===id)p=x;});
+  if(p){
+    $('promptText').value=p.prompt;
+    presetTheme=p.theme||"";
+    $('theme').value='';
+    $('theme').placeholder=presetTheme?"补充描述，如：在月球上、遇到了外星朋友...":"如：小猫咪在月球上过生日...";
+    updateCharCount();
+  }
+}
+
+function updateCharCount(){
+  $('charCount').textContent=$('promptText').value.length+' 字';
+}
+
+// ===== 绘本列表 =====
+function loadStories(){
+  if(showingSettings) return;
+  fetch('/api/stories').then(function(r){return r.json()}).then(function(data){
+    var all=data||[];
+    // 合并运行中的任务
+    var running=[];
+    Object.keys(runningJobs).forEach(function(k){
+      if(runningJobs[k].status==='running') running.push(runningJobs[k]);
+    });
+    renderStoryGrid(running,all);
+    $('storyCount').textContent=all.length+running.length;
+  });
+}
+
+// 页面加载时恢复持久化的任务
+function restoreJobs(){
+  fetch('/api/jobs').then(function(r){return r.json()}).then(function(jobs){
+    jobs.forEach(function(j){
+      if(j.status==='running'){
+        // 正在运行的任务，重新订阅 SSE
+        runningJobs[j.id]=j;
+        var es=new EventSource('/api/status?job='+j.id);
+        es.onmessage=function(e){
+          try{
+            var updated=JSON.parse(e.data);
+            if(!updated||!updated.id){es.close();return}
+            runningJobs[j.id]=updated;
+            loadStories();
+            if(updated.status!=='running'){
+              es.close();
+              if(updated.status==='done'){
+                delete runningJobs[j.id];
+              }else if(updated.status==='failed'){
+                runningJobs[j.id].status='failed';
+              }
+              loadStories();
+            }
+          }catch(err){es.close();}
+        };
+        es.onerror=function(){es.close();};
+      }else if(j.status==='paused'||j.status==='failed'){
+        // 暂停或失败的任务，显示在列表里但不订阅 SSE
+        runningJobs[j.id]=j;
+      }
+    });
+    loadStories();
+  });
+}
+
+function renderStoryGrid(running,done){
+  var grid=$('storyGrid');
+
+  // 如果为空，全量渲染
+  if(running.length===0 && done.length===0){
+    grid.innerHTML='<div style="grid-column:1/-1;text-align:center;opacity:.3;padding:60px 0;font-size:14px">暂无绘本，点击左侧「开始生成」</div>';
+    return;
+  }
+
+  // 增量更新：只更新/新增/删除变化的卡片
+  var existingCards={};
+  Array.from(grid.children).forEach(function(el){
+    var jobId=el.getAttribute('data-job');
+    var storyName=el.getAttribute('data-name');
+    var key=jobId||storyName;
+    if(key) existingCards[key]=el;
+  });
+
+  // 1. 更新或新增运行中的任务
+  running.forEach(function(j,idx){
+    var existing=existingCards[j.id];
+    if(existing){
+      // 局部更新：只更新进度相关的元素
+      updateRunningCard(existing,j);
+      delete existingCards[j.id]; // 标记为已处理
+      // 确保顺序正确（运行中的任务应该在前面）
+      if(grid.children[idx]!==existing){
+        grid.insertBefore(existing,grid.children[idx]||null);
+      }
+    }else{
+      // 新任务：插入到前面
+      var html=renderRunningCard(j);
+      var temp=document.createElement('div');
+      temp.innerHTML=html;
+      grid.insertBefore(temp.firstChild,grid.children[idx]||null);
+    }
+  });
+
+  // 2. 更新或新增已完成的绘本
+  done.forEach(function(s){
+    var existing=existingCards[s.name];
+    if(existing){
+      delete existingCards[s.name]; // 已存在，保持不变
+    }else{
+      // 新完成的绘本：追加到末尾
+      var html=renderDoneCard(s);
+      var temp=document.createElement('div');
+      temp.innerHTML=html;
+      grid.appendChild(temp.firstChild);
+    }
+  });
+
+  // 3. 删除不再存在的卡片（任务完成或被删除）
+  Object.keys(existingCards).forEach(function(key){
+    existingCards[key].remove();
+  });
+}
+
+// 局部更新运行中任务卡片的进度信息
+function updateRunningCard(cardEl,job){
+  var pct=job.total>0?Math.round(job.done/job.total*100):0;
+  var circ=2*Math.PI*20;
+  var offset=circ-(pct/100)*circ;
+
+  // 更新百分比
+  var pctEl=cardEl.querySelector('.progress-pct');
+  if(pctEl) pctEl.textContent=pct+'%';
+
+  // 更新进度环
+  var fillEl=cardEl.querySelector('.progress-ring .fill');
+  if(fillEl) fillEl.setAttribute('stroke-dashoffset',offset);
+
+  // 更新阶段文字（两处）
+  var phaseEls=cardEl.querySelectorAll('.progress-phase, .card-phase');
+  phaseEls.forEach(function(el){
+    var dotSpan=el.querySelector('.dot');
+    if(dotSpan){
+      el.innerHTML='<span class="dot"></span>'+esc(job.phase||'');
+    }else{
+      el.textContent=esc(job.phase||'');
+    }
+  });
+
+  // 更新标题
+  var titleEl=cardEl.querySelector('.card-body h3');
+  if(titleEl && job.title) titleEl.textContent=esc(job.title||job.theme||'生成中...');
+
+  // 更新按钮状态（running/paused）
+  var actionsEl=cardEl.querySelector('.card-actions');
+  if(actionsEl){
+    if(job.status==='paused'){
+      actionsEl.innerHTML='<button class="btn-resume" onclick="event.stopPropagation();resumeJob(\''+esc(job.id)+'\')">🔄 续做</button>';
+    }else if(job.status==='running'){
+      actionsEl.innerHTML='<button class="btn-cancel" onclick="event.stopPropagation();cancelJob(\''+esc(job.id)+'\')">⏹ 取消</button>';
+    }
+  }
+}
+
+function renderRunningCard(j){
+  var pct=j.total>0?Math.round(j.done/j.total*100):0;
+  var circ=2*Math.PI*20;
+  var offset=circ-(pct/100)*circ;
+  return '<div class="card running" data-job="'+esc(j.id)+'">'
+    +'<div class="card-thumb">'
+    +'<div class="card-progress">'
+    +'<svg class="progress-ring" viewBox="0 0 44 44"><circle class="bg" cx="22" cy="22" r="20"/><circle class="fill" cx="22" cy="22" r="20" stroke-dasharray="'+circ+'" stroke-dashoffset="'+offset+'"/></svg>'
+    +'<div class="progress-pct">'+pct+'%</div>'
+    +'<div class="progress-phase">'+esc(j.phase||'')+'</div>'
+    +'</div></div>'
+    +'<div class="card-body"><h3>'+esc(j.title||j.theme||'生成中...')+'</h3>'
+    +'<div class="card-meta"><span>'+esc(j.story_type||'')+'</span><span>'+(j.page_count||0)+'页</span></div>'
+    +'<div class="card-phase"><span class="dot"></span>'+esc(j.phase||'')+'</div>'
+    +'<div class="card-actions">'
+    +(j.status==='paused'
+      ? '<button class="btn-resume" onclick="event.stopPropagation();resumeJob(\''+esc(j.id)+'\')">🔄 续做</button>'
+      : '<button class="btn-cancel" onclick="event.stopPropagation();cancelJob(\''+esc(j.id)+'\')">⏹ 取消</button>')
+    +'</div></div></div>';
+}
+
+function renderDoneCard(s){
+  var hasCover=s.has_cover&&s.cover;
+  var thumb=hasCover
+    ?'<img src="'+esc(s.cover)+'" loading="lazy" onerror="this.parentNode.innerHTML=\'<div class=placeholder>📖</div>\'"/>'
+    :'<div class="placeholder">📖</div>';
+  var isSel=selectedSet[s.name];
+  var cls='card done'+(selectMode?' select-mode':'')+(isSel?' selected':'');
+  return '<div class="'+cls+'" data-name="'+esc(s.name)+'" onclick="cardClick(\''+esc(s.name)+'\',\''+esc(s.path)+'\')">'
+    +'<div class="check-mark"></div>'
+    +'<span class="badge done">✅</span>'
+    +'<div class="card-thumb">'+thumb+'</div>'
+    +'<div class="card-body"><h3>'+esc(s.title||s.name)+'</h3>'
+    +'<div class="card-meta"><span>'+esc(s.story_type||'')+'</span><span>'+(s.page_count||0)+'页</span></div>'
+    +'<div class="card-actions">'
+    +'<a href="'+esc(s.path)+'" target="_blank" onclick="event.stopPropagation()">📖 绘本</a>'
+    +'<a href="/api/pdf?name='+encodeURIComponent(s.name)+'" onclick="event.stopPropagation()">📄 PDF</a>'
+    +'</div></div></div>';
+}
+
+// ===== 多选逻辑 =====
+var longPressTimer=null;
+
+document.addEventListener('mousedown',function(e){
+  var card=e.target.closest('.card.done');
+  if(!card) return;
+  longPressTimer=setTimeout(function(){
+    enterSelectMode(card.dataset.name);
+  },500);
+});
+document.addEventListener('mouseup',function(){clearTimeout(longPressTimer);});
+document.addEventListener('mouseleave',function(){clearTimeout(longPressTimer);});
+document.addEventListener('touchstart',function(e){
+  var card=e.target.closest('.card.done');
+  if(!card) return;
+  longPressTimer=setTimeout(function(){
+    enterSelectMode(card.dataset.name);
+  },500);
+},{passive:true});
+document.addEventListener('touchend',function(){clearTimeout(longPressTimer);});
+document.addEventListener('touchmove',function(){clearTimeout(longPressTimer);});
+
+function enterSelectMode(name){
+  if(selectMode) return;
+  selectMode=true;
+  selectedSet={};
+  if(name) selectedSet[name]=true;
+  renderActions();
+  loadStories();
+}
+
+function exitSelectMode(){
+  selectMode=false;
+  selectedSet={};
+  renderActions();
+  loadStories();
+}
+
+function cardClick(name,path){
+  if(selectMode){
+    if(selectedSet[name]) delete selectedSet[name];
+    else selectedSet[name]=true;
+    if(Object.keys(selectedSet).length===0){exitSelectMode();return;}
+    renderActions();
+    loadStories();
+    return;
+  }
+  window.open(path,'_blank');
+}
+
+function renderActions(){
+  if(showingSettings) return;
+  var el=$('actions');
+  var bar=$('selectBar');
+  if(!selectMode){
+    el.innerHTML='<button class="btn-settings" id="settingsBtn" onclick="toggleSettings()">⚙️ 设置</button>';
+    bar.classList.remove('show');
+    return;
+  }
+  el.innerHTML='<button class="btn-sm" onclick="exitSelectMode()">取消选择</button>';
+  var n=Object.keys(selectedSet).length;
+  $('selectCount').textContent='已选 '+n+' 项';
+  bar.classList.add('show');
+}
+
+function deleteSelected(){
+  var names=Object.keys(selectedSet);
+  if(!names.length) return;
+  if(!confirm('确认删除 '+names.length+' 个绘本？此操作不可恢复。')) return;
+  fetch('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({names:names})})
+    .then(function(r){return r.json()})
+    .then(function(d){
+      exitSelectMode();
+      loadStories();
+    });
+}
+
+// ===== 生成 =====
+function startJob(){
+  $('btn').disabled=true;
+  var customDesc=$('theme').value.trim();
+  var theme=presetTheme;
+  if(customDesc) theme=presetTheme?(presetTheme+'，'+customDesc):customDesc;
+  fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    story_type:$('workType').value,
+    theme:theme,
+    style:(selectedStoryStyles.length?selectedStoryStyles.join(','):'温暖成长叙事'),
+    count:+$('count').value,
+    page_count:+$('pageCount').value,
+    prompt_template:$('promptText').value
+  })}).then(function(r){return r.json()}).then(function(data){
+    (data.jobs||[]).forEach(function(id){trackJob(id,theme)});
+  });
+}
+
+function trackJob(id,theme){
+  var job={id,status:'running',title:'',theme:theme||'',story_type:$('workType').value,page_count:+$('pageCount').value,done:0,total:0,phase:'准备中',started_at:new Date().toISOString()};
+  runningJobs[id]=job;
+  loadStories();
+  var es=new EventSource('/api/status?job='+id);
+  es.onmessage=function(e){
+    try{
+      var j=JSON.parse(e.data);
+      if(!j||!j.id){es.close();return}
+      runningJobs[id]=j;
+      loadStories();
+      if(j.status!=='running'){
+        es.close();
+        // paused 状态保留在列表里（带"续做"按钮），不删除
+        if(j.status==='done'){
+          delete runningJobs[id];
+        }else if(j.status==='failed'){
+          runningJobs[id].status='failed';
+        }
+        // paused / 其他：保留
+        loadStories();
+        $('btn').disabled=false;
+      }
+    }catch(err){es.close();$('btn').disabled=false;}
+  };
+  es.onerror=function(){es.close();$('btn').disabled=false;};
+}
+
+// 取消正在运行的任务
+function cancelJob(id){
+  if(!confirm('确定要取消这个任务吗？已生成的图片会保留，可稍后续做。')) return;
+  fetch('/api/cancel?job='+encodeURIComponent(id),{method:'POST'})
+    .then(function(r){return r.json()})
+    .then(function(d){
+      if(d.ok){
+        // 后端会把 status 改为 paused，UI 在下一次 SSE 推送时自动更新
+        console.log('已请求取消:',d.message);
+      } else {
+        alert('取消失败: '+(d.message||''));
+      }
+    })
+    .catch(function(err){alert('请求失败: '+err);});
+}
+
+// 续做被取消或失败的任务
+function resumeJob(id){
+  if(!confirm('将续做这个任务（跳过已生成的图片）。继续？')) return;
+  fetch('/api/resume?job='+encodeURIComponent(id),{method:'POST'})
+    .then(function(r){return r.json()})
+    .then(function(d){
+      if(d.ok){
+        // 把状态切回 running，重新订阅 SSE
+        var old=runningJobs[id];
+        runningJobs[id]=Object.assign({},old,{status:'running',phase:'续做中',done:0});
+        loadStories();
+        // 重新跟踪
+        var es=new EventSource('/api/status?job='+id);
+        es.onmessage=function(e){
+          try{
+            var j=JSON.parse(e.data);
+            if(!j||!j.id){es.close();return}
+            runningJobs[id]=j;
+            loadStories();
+            if(j.status!=='running'){
+              es.close();
+              if(j.status==='done'){
+                delete runningJobs[id];
+              }else if(j.status==='failed'){
+                runningJobs[id].status='failed';
+              }
+              loadStories();
+            }
+          }catch(err){es.close();}
+        };
+        es.onerror=function(){es.close();};
+      } else {
+        alert('续做失败: '+(d.message||''));
+      }
+    })
+    .catch(function(err){alert('请求失败: '+err);});
+}
+
+$('btn').onclick=startJob;
+loadConfig();
+loadPresets();
+loadWorkTypes();
+loadStyles();
+loadStoryStyles();
+loadModelPresets().then(function(){loadSettingsModels();});
+loadProviders(); // 加载渠道列表
+restoreJobs(); // 恢复持久化任务
+loadStories();
+setInterval(function(){
+  var hasRunning=Object.keys(runningJobs).some(function(k){return runningJobs[k].status==='running'});
+  if(hasRunning) loadStories();
+},3000);
+</script>
+
+<!-- 添加渠道模态对话框 -->
+<div id="addProviderModal" class="modal-overlay" onclick="if(event.target===this) closeAddProviderModal()">
+  <div class="modal-dialog">
+    <div class="modal-header">🌐 添加渠道</div>
+    <div class="modal-body">
+      <div class="modal-field">
+        <label>渠道名称</label>
+        <input type="text" id="providerName" placeholder="如：Grok 远程" />
+      </div>
+      <div class="modal-field">
+        <label>API 端点</label>
+        <input type="text" id="providerBaseURL" placeholder="https://api.example.com/v1" />
+      </div>
+      <div class="modal-field">
+        <label>API 密钥</label>
+        <input type="password" id="providerAPIKey" placeholder="sk-..." />
+      </div>
+      <div class="modal-field">
+        <label>协议格式</label>
+        <select id="providerProtocol">
+          <option value="auto">自动探测</option>
+          <option value="openai-chat">OpenAI Chat Completions</option>
+          <option value="openai-response">OpenAI Responses</option>
+          <option value="claude">Claude (Anthropic)</option>
+          <option value="gemini">Google Gemini</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn-cancel" onclick="closeAddProviderModal()">取消</button>
+      <button class="modal-btn-confirm" onclick="confirmAddProvider()">确认添加</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

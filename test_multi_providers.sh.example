@@ -1,0 +1,65 @@
+#!/bin/bash
+
+# 测试脚本示例：添加多个供应商的模型
+# 复制此文件为 test_multi_providers.sh 并填入真实的 API 端点和密钥
+
+BASE_URL="http://localhost:8080"
+
+echo "=== 添加远程供应商模型 ==="
+
+# 添加远程文本模型
+curl -X POST "$BASE_URL/api/models/custom" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "grok-4.20-0309-non-reasoning",
+    "name": "Grok 4 (远程)",
+    "type": "text",
+    "base_url": "https://your-remote-api.example.com/v1",
+    "api_key": "sk-your-api-key-here"
+  }'
+
+echo -e "\n"
+
+# 添加远程图片模型
+curl -X POST "$BASE_URL/api/models/custom" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "grok-imagine-image-lite",
+    "name": "Grok Imagine Lite (远程)",
+    "type": "image",
+    "base_url": "https://your-remote-api.example.com/v1",
+    "api_key": "sk-your-api-key-here"
+  }'
+
+echo -e "\n=== 添加本地供应商模型 ===\n"
+
+# 添加本地文本模型
+curl -X POST "$BASE_URL/api/models/custom" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "gpt-5-5-local",
+    "name": "GPT-5.5 (本地)",
+    "type": "text",
+    "base_url": "http://127.0.0.1:3000/v1",
+    "api_key": "your-local-api-key"
+  }'
+
+echo -e "\n"
+
+# 添加本地图片模型
+curl -X POST "$BASE_URL/api/models/custom" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "gpt-image-2-local",
+    "name": "GPT Image 2 (本地)",
+    "type": "image",
+    "base_url": "http://127.0.0.1:3000/v1",
+    "api_key": "your-local-api-key"
+  }'
+
+echo -e "\n=== 查看所有自定义模型 ===\n"
+
+curl "$BASE_URL/api/models/custom"
+
+echo -e "\n\n=== 完成 ==="
+echo "现在可以在 Web 界面的下拉框中选择这些模型了"
