@@ -37,3 +37,6 @@ logs/
 
 # 测试脚本（可能含密钥）
 test_*.sh
+
+# 本地代码索引缓存
+.codebase-memory/

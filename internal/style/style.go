@@ -100,6 +100,24 @@ yellow simplified firefighter jacket, no complex details, heroic but friendly ap
 consistent character design throughout all pages`,
 		Traits: "勇敢、迅速、保护者",
 	},
+	"main_woman": {
+		ID:     "main_woman",
+		Name:   "成年女性",
+		NameEN: "Adult Woman",
+		Description: `a woman with natural human proportions, realistic facial features,
+contemporary simple clothing, calm nuanced expression, natural presence,
+consistent character design throughout all pages`,
+		Traits: "细腻、独立、克制",
+	},
+	"main_man": {
+		ID:     "main_man",
+		Name:   "成年男性",
+		NameEN: "Adult Man",
+		Description: `a man with natural human proportions, realistic facial features,
+contemporary simple clothing, thoughtful nuanced expression, natural presence,
+consistent character design throughout all pages`,
+		Traits: "沉稳、真实、克制",
+	},
 }
 
 // GetCharacter 获取角色
@@ -186,6 +204,95 @@ low contrast, high brightness, no harsh shadows`,
 slight low-angle, interactive poses, clean background`,
 		Shading: `minimal cool shading, soft blue ambient light, 
 no dramatic shadows, gentle color transitions`,
+	},
+	{
+		ID:   "watercolor",
+		Name: "水彩手绘",
+		Icon: "🖌️",
+		Desc: "水彩纸纹、温润笔触，适合文学绘本",
+		BasePrompt: `hand-painted watercolor picture book illustration,
+visible paper texture, translucent pigment layers, delicate brush strokes,
+organic edges, poetic and human atmosphere`,
+		ColorScheme: `restrained watercolor palette, gentle earth tones,
+muted blues and warm grays, subtle accent colors, low saturation`,
+		Composition: `elegant picture book composition with negative space,
+natural human proportions, expressive gesture and environment relationship`,
+		Shading: `soft watercolor washes, no harsh contrast,
+ambient light with subtle gradients and paper grain`,
+	},
+	{
+		ID:   "realistic",
+		Name: "写实插画",
+		Icon: "📷",
+		Desc: "自然比例、电影光影，适合合家阅读剧情",
+		BasePrompt: `realistic illustrated picture book style,
+natural human proportions, lifelike environments, refined details,
+cinematic but painterly rendering`,
+		ColorScheme: `cinematic natural colors, realistic skin tones,
+controlled contrast, atmospheric perspective`,
+		Composition: `film still composition, family-friendly visual storytelling,
+clear focal point, natural body language, tasteful framing`,
+		Shading: `natural lighting and shadows, soft depth of field,
+subtle rim light when appropriate, no overdramatic effects`,
+	},
+	{
+		ID:   "ink",
+		Name: "水墨国风",
+		Icon: "🏔️",
+		Desc: "留白、墨色、东方诗意",
+		BasePrompt: `Chinese ink wash picture book illustration,
+traditional brushwork, expressive ink gradients, poetic restraint,
+elegant Eastern aesthetic`,
+		ColorScheme: `ink black, warm paper white, subtle mineral colors,
+misty gray tones, restrained accents`,
+		Composition: `asymmetrical composition, strong negative space,
+poetic scenery, human figure integrated with landscape`,
+		Shading: `ink wash diffusion, soft tonal transitions,
+paper texture, no hard digital shadows`,
+	},
+	{
+		ID:   "editorial",
+		Name: "通用杂志插画",
+		Icon: "📰",
+		Desc: "克制、隐喻、现代编辑插画",
+		BasePrompt: `sophisticated editorial illustration,
+nuanced emotional tone, subtle symbolism, contemporary art book feeling,
+refined shapes and confident visual hierarchy`,
+		ColorScheme: `limited refined palette, tasteful contrast,
+muted background colors with one or two symbolic accents`,
+		Composition: `restrained composition with elegant negative space,
+symbolic objects, natural human proportions, clear pacing`,
+		Shading: `clean atmospheric shading, subtle gradients,
+no childish cuteness, no harsh spectacle`,
+	},
+	{
+		ID:   "anime",
+		Name: "二次元动漫",
+		Icon: "🌸",
+		Desc: "干净线稿、赛璐璐上色、角色一致",
+		BasePrompt: `high quality anime illustration, clean confident line art,
+polished cel shading, expressive eyes, light novel and animation key visual quality,
+consistent anime character design`,
+		ColorScheme: `vibrant but controlled anime color palette,
+clear local colors, soft highlights, coherent costume colors across pages`,
+		Composition: `anime storyboard composition, readable character silhouettes,
+clear focal point, expressive pose, strong continuity between pages`,
+		Shading: `clean cel shading, soft rim light when needed,
+no muddy textures, no inconsistent facial redesign`,
+	},
+	{
+		ID:   "comic",
+		Name: "漫画风",
+		Icon: "💬",
+		Desc: "分镜感、速度线、漫画叙事",
+		BasePrompt: `comic and manga inspired illustration, bold readable outlines,
+dynamic panel-ready composition, expressive faces, clean action language`,
+		ColorScheme: `high readability colors, controlled contrast,
+clear separation between characters and background`,
+		Composition: `comic storyboard framing, dynamic angles when appropriate,
+clear gutters implied by composition, consistent character proportions`,
+		Shading: `graphic shading, tasteful speed lines and motion emphasis,
+no text, no speech bubbles, no lettering`,
 	},
 }
 
@@ -281,14 +388,14 @@ type EmotionTag struct {
 
 // Emotions 情绪库
 var Emotions = map[string]EmotionTag{
-	"calm":      {ID: "calm", Name: "平静", Modifier: "calm and peaceful expression, relaxed atmosphere"},
-	"worried":   {ID: "worried", Name: "担心", Modifier: "slightly worried expression, gentle tension, not scary"},
-	"scared":    {ID: "scared", Name: "害怕", Modifier: "mildly frightened but not terrified, seeking comfort"},
-	"relieved":  {ID: "relieved", Name: "安心", Modifier: "relieved and grateful expression, warm feeling"},
-	"happy":     {ID: "happy", Name: "开心", Modifier: "happy and joyful expression, bright smile"},
-	"admiring":  {ID: "admiring", Name: "崇拜", Modifier: "admiring look, eyes shining with respect and gratitude"},
+	"calm":       {ID: "calm", Name: "平静", Modifier: "calm and peaceful expression, relaxed atmosphere"},
+	"worried":    {ID: "worried", Name: "担心", Modifier: "slightly worried expression, gentle tension, not scary"},
+	"scared":     {ID: "scared", Name: "害怕", Modifier: "mildly frightened but not terrified, seeking comfort"},
+	"relieved":   {ID: "relieved", Name: "安心", Modifier: "relieved and grateful expression, warm feeling"},
+	"happy":      {ID: "happy", Name: "开心", Modifier: "happy and joyful expression, bright smile"},
+	"admiring":   {ID: "admiring", Name: "崇拜", Modifier: "admiring look, eyes shining with respect and gratitude"},
 	"determined": {ID: "determined", Name: "坚定", Modifier: "determined and focused expression, confident posture"},
-	"caring":    {ID: "caring", Name: "关爱", Modifier: "caring and gentle expression, protective gesture"},
+	"caring":     {ID: "caring", Name: "关爱", Modifier: "caring and gentle expression, protective gesture"},
 }
 
 // GetEmotion 获取情绪
@@ -416,8 +523,8 @@ type StoryTemplate struct {
 	ID           string
 	Name         string
 	Theme        string
-	Structure    string // 5段式结构
-	EmotionCurve string // 情绪曲线
+	Structure    string   // 5段式结构
+	EmotionCurve string   // 情绪曲线
 	CharacterIDs []string // 默认角色
 	SceneIDs     []string // 默认场景
 }
@@ -534,6 +641,7 @@ func GetStoryTemplate(id string) *StoryTemplate {
 // StoryPromptRequest 故事文本请求
 type StoryPromptRequest struct {
 	TemplateID string // 故事模板 ID
+	StoryType  string // 作品类型
 	Theme      string // 自定义主题（覆盖模板）
 	PageCount  int    // 页数
 	Style      string // 风格
@@ -542,6 +650,34 @@ type StoryPromptRequest struct {
 // AssembleStoryPrompt 组装故事文本生成 prompt
 func AssembleStoryPrompt(req StoryPromptRequest) string {
 	var sb strings.Builder
+	allAge := strings.Contains(req.TemplateID, "all-age") || strings.Contains(req.StoryType, "合家阅读") || strings.Contains(req.StoryType, "通用") || strings.Contains(req.Theme, "合家阅读") || strings.Contains(req.Theme, "通用") || strings.Contains(req.Style, "合家阅读") || strings.Contains(req.Style, "通用")
+
+	if allAge {
+		sb.WriteString("你是一名通用绘本/图像小说生成引擎，请严格执行以下规则。\n\n")
+		sb.WriteString("核心定位：孩子能看，家长也愿意读；图文叙事 + 情绪细节 + 清晰完整故事。\n\n")
+		if req.Theme != "" {
+			sb.WriteString(fmt.Sprintf("## 用户指定主题\n%s\n\n", req.Theme))
+		}
+		sb.WriteString("## 强约束\n")
+		sb.WriteString("1. 只允许输出中文故事正文\n")
+		sb.WriteString("2. 禁止出现英文、绘图提示词、画面描述、说明性元信息\n")
+		sb.WriteString("3. 语言要克制、具体、有画面；避免儿童口吻、说教和鸡汤\n")
+		sb.WriteString("4. 可以有现实矛盾、悬疑、失落、和解等细腻情绪，但保持家庭友好，避免不适宜内容\n\n")
+		sb.WriteString(fmt.Sprintf("## 输出格式\n生成一本 %d 页的通用绘本/图像小说。\n\n", req.PageCount))
+		sb.WriteString("每一页格式：\n第1页\n（正文内容）\n\n第2页\n（正文内容）\n\n")
+		sb.WriteString(fmt.Sprintf("一直到第%d页\n\n", req.PageCount))
+		sb.WriteString("## 单页内容规则\n")
+		sb.WriteString("- 每页 1-3 段，每段 1-3 句\n")
+		sb.WriteString("- 句子可以有长短变化，保持文学节奏\n")
+		sb.WriteString("- 每页推动一个情绪、动作、线索或关系变化\n")
+		sb.WriteString("- 图像感优先：多用可被画出来的具体物件、场景、光线、动作\n\n")
+		sb.WriteString("## 结构建议\n")
+		sb.WriteString("- 前 20%：建立人物与核心缺口\n")
+		sb.WriteString("- 中间 60%：通过场景、选择、误会或线索推进\n")
+		sb.WriteString("- 后 20%：给出回响、转变或开放式余味\n")
+		sb.WriteString("- 结尾不必大团圆，但必须完整、有余味\n")
+		return sb.String()
+	}
 
 	// 核心定位
 	sb.WriteString("你是一名儿童绘本生成引擎，请严格执行以下规则。\n\n")
@@ -622,7 +758,7 @@ func AssembleStoryPrompt(req StoryPromptRequest) string {
 // MapSceneFromText 根据文本内容推测合适的场景
 func MapSceneFromText(text string) string {
 	text = strings.ToLower(text)
-	
+
 	// 关键词 -> 场景映射
 	mappings := []struct {
 		keywords []string
@@ -651,7 +787,7 @@ func MapSceneFromText(text string) string {
 func MapEmotionFromText(text string) string {
 	// 情绪关键词映射
 	mappings := []struct {
-		keywords []string
+		keywords  []string
 		emotionID string
 	}{
 		{[]string{"害怕", "恐惧", "怕", "吓"}, "scared"},

@@ -50,6 +50,13 @@ func InferModelType(modelID string) string {
 		strings.Contains(lower, "flux") ||
 		strings.Contains(lower, "stable") ||
 		strings.Contains(lower, "midjourney") ||
+		strings.Contains(lower, "imagen") ||
+		strings.Contains(lower, "ideogram") ||
+		strings.Contains(lower, "recraft") ||
+		strings.Contains(lower, "kolors") ||
+		strings.Contains(lower, "wan") ||
+		strings.Contains(lower, "kling") ||
+		strings.Contains(lower, "cogview") ||
 		strings.Contains(lower, "paint") ||
 		strings.Contains(lower, "draw") ||
 		strings.Contains(lower, "pic") {
@@ -61,6 +68,20 @@ func InferModelType(modelID string) string {
 		return "vision"
 	}
 	return "text"
+}
+
+func InferModelProtocol(modelID, baseURL string) string {
+	lower := strings.ToLower(modelID + " " + baseURL)
+	switch {
+	case strings.Contains(lower, "anthropic") || strings.Contains(lower, "claude"):
+		return "claude"
+	case strings.Contains(lower, "generativelanguage") || strings.Contains(lower, "gemini"):
+		return "gemini"
+	case strings.Contains(lower, "responses"):
+		return "responses"
+	default:
+		return "openai"
+	}
 }
 
 // StylePreset 风格预设
@@ -101,12 +122,14 @@ type RuntimeConfig struct {
 	WorkType            string `json:"work_type"` // 选中的作品类型 ID
 	StoryType           string `json:"story_type"`
 	Theme               string `json:"theme"`
+	CharacterProfile    string `json:"character_profile"`
 	Style               string `json:"style"`
 	ImageStyle          string `json:"image_style"`
 	NegativeImagePrompt string `json:"negative_image_prompt"`
 	PromptTemplate      string `json:"prompt_template"`
 	BatchCount          int    `json:"batch_count"`
 	PageCount           int    `json:"page_count"`
+	ImageWorkers        int    `json:"image_workers"`
 	Port                int    `json:"port"`
 }
 
@@ -171,6 +194,21 @@ var ImageStylePresets = []StylePreset{
 		Desc:   "粗线条、速度线、动感分镜",
 		Prompt: "comic book style, bold outlines, dynamic action lines, dramatic angles, manga-influenced, expressive faces, screen tones, high contrast",
 	},
+	{
+		ID: "anime", Name: "二次元动漫", Icon: "🌸",
+		Desc:   "日系二次元、干净线稿、适合漫剧/轻漫画",
+		Prompt: "high quality anime illustration, clean line art, expressive eyes, polished cel shading, vibrant but controlled colors, consistent anime character design, light novel cover quality",
+	},
+	{
+		ID: "anime-cinematic", Name: "电影感二次元", Icon: "🎬",
+		Desc:   "新海诚式光影、氛围强、适合剧情漫剧",
+		Prompt: "cinematic anime illustration, atmospheric lighting, beautiful sky and environmental detail, clean anime line art, emotional composition, film still feeling, consistent character design",
+	},
+	{
+		ID: "guofeng-anime", Name: "国风二次元", Icon: "🏮",
+		Desc:   "国风服饰、东方色彩、动漫表现",
+		Prompt: "Chinese fantasy anime illustration, elegant hanfu-inspired costume design, refined ink-and-color atmosphere, clean anime line art, eastern fantasy mood, consistent character design",
+	},
 	// === 艺术风格 ===
 	{
 		ID: "fantasy", Name: "梦幻童话", Icon: "✨",
@@ -218,6 +256,17 @@ var ImageStylePresets = []StylePreset{
 		ID: "clay", Name: "黏土定格", Icon: "🫠",
 		Desc:   "黏土质感、定格动画、手作温度",
 		Prompt: "clay animation style, stop-motion look, plasticine texture, handmade feel, slight fingerprints visible, Aardman animation inspired, warm lighting on clay surfaces",
+	},
+	// === 通用绘本 / 视觉散文风格 ===
+	{
+		ID: "editorial", Name: "通用杂志插画", Icon: "📰",
+		Desc:   "克制构图、留白、适合合家阅读叙事与视觉散文",
+		Prompt: "sophisticated editorial illustration, restrained composition, elegant negative space, nuanced emotional tone, contemporary magazine illustration, subtle symbolism, refined color palette",
+	},
+	{
+		ID: "cinematic", Name: "电影感绘本", Icon: "🎞️",
+		Desc:   "电影镜头、氛围光、适合合家阅读剧情绘本",
+		Prompt: "cinematic illustrated picture book style, atmospheric lighting, film still composition, nuanced human emotions, realistic proportions, shallow depth of field, family-friendly visual storytelling",
 	},
 }
 
@@ -320,6 +369,27 @@ var StoryStylePresets = []StylePreset{
 		Desc:   "走进自然、发现奥秘、敬畏生命",
 		Prompt: "探索大自然的奇妙旅程，发现动植物的生存智慧，培养对自然的敬畏与热爱",
 	},
+	// === 合家阅读通用绘本类 ===
+	{
+		ID: "all-age-healing", Name: "合家疗愈", Icon: "🌙",
+		Desc:   "失落、修复、和解，克制但有余温",
+		Prompt: "合家阅读疗愈叙事，关注失落、修复、和解与自我接纳，语言克制有余温，避免说教",
+	},
+	{
+		ID: "all-age-urban", Name: "都市人生", Icon: "🏙️",
+		Desc:   "城市关系、选择、孤独与重新连接",
+		Prompt: "都市通用故事，围绕现实关系、选择、孤独与重新连接展开，具备具体生活细节和画面感",
+	},
+	{
+		ID: "all-age-literary-style", Name: "文学留白", Icon: "🕯️",
+		Desc:   "诗性、象征、开放式余味",
+		Prompt: "文学化通用绘本叙事，重视留白、象征物、场景回响和开放式余味，避免低幼口吻",
+	},
+	{
+		ID: "all-age-suspense", Name: "通用悬疑", Icon: "🗝️",
+		Desc:   "线索、秘密、反转，克制温和",
+		Prompt: "合家阅读悬疑图像小说叙事，通过线索、秘密和人物选择推进，节奏紧凑但保持温和安全",
+	},
 }
 
 // DefaultStoryStyles 默认选中的故事风格
@@ -406,6 +476,34 @@ var WorkTypePresets = []WorkTypePreset{
 		ArtHint:    "photorealistic illustration, real human proportions, realistic environments, cinematic quality, DSLR photo look",
 		LayoutHint: "photo-realistic full page with text overlay",
 	},
+	{
+		ID: "all-age-picture-book", Name: "通用绘本", Icon: "📘",
+		Desc:      "家庭友好读者，图文并重，情绪细腻，适合视觉散文/都市故事",
+		StoryType: "合家阅读图文绘本", PageRange: "16-32",
+		ArtHint:    "family-friendly illustrated picture book, nuanced emotions, sophisticated composition, symbolic visual storytelling",
+		LayoutHint: "full page illustration with elegant prose blocks and generous whitespace",
+	},
+	{
+		ID: "all-age-literary", Name: "通用文学绘本", Icon: "🖋️",
+		Desc:      "偏文学表达，留白感强，适合亲情、人生、疗愈主题",
+		StoryType: "通用文学绘本", PageRange: "20-40",
+		ArtHint:    "literary art book illustration, poetic atmosphere, restrained colors, visual metaphor, cross-age emotional resonance",
+		LayoutHint: "alternating full-bleed illustration and prose-centered pages",
+	},
+	{
+		ID: "all-age-graphic-novel", Name: "通用图像小说", Icon: "📕",
+		Desc:      "剧情更强，分镜叙事，适合悬疑、都市、科幻、现实题材",
+		StoryType: "通用图像小说", PageRange: "18-36",
+		ArtHint:    "graphic novel style, cinematic panels, realistic proportions, dramatic but tasteful lighting, clear story pacing",
+		LayoutHint: "varied comic panels with cinematic transitions and clear reading order",
+	},
+	{
+		ID: "all-age-photo-essay", Name: "通用写真绘本", Icon: "📷",
+		Desc:      "写真/纪实质感，适合旅行、人物、品牌故事",
+		StoryType: "通用写真绘本", PageRange: "12-30",
+		ArtHint:    "photorealistic visual essay, documentary photography feeling, real human proportions, cinematic realism",
+		LayoutHint: "photo essay layout with concise captions and strong visual rhythm",
+	},
 }
 var DefaultStoryStyles = []string{"warm-growth"}
 
@@ -465,12 +563,14 @@ var (
 		WorkType:            envOr("WORK_TYPE", "kids-book"),
 		StoryType:           envOr("STORY_TYPE", "儿童成长绘本"),
 		Theme:               envOr("STORY_THEME", ""),
+		CharacterProfile:    envOr("STORY_CHARACTER_PROFILE", ""),
 		Style:               envOr("STORY_STYLE", "温暖成长叙事"),
 		ImageStyle:          envOr("STORY_IMAGE_STYLE", buildImageStyleFromPresets(DefaultImageStyles)),
 		NegativeImagePrompt: envOr("STORY_NEGATIVE_IMAGE_PROMPT", "text, letters, Chinese characters, Japanese characters, Korean characters, CJK characters, any writing, any words, any numbers, watermarks, signatures, speech bubbles, captions, titles, signs, labels, book covers with text, chibi, super-deformed, oversized head, toddler style"),
 		PromptTemplate:      envOr("STORY_PROMPT_TEMPLATE", defaultPromptTemplate()),
 		BatchCount:          envIntOr("BATCH_COUNT", 1),
 		PageCount:           envIntOr("PAGE_COUNT", 20),
+		ImageWorkers:        NormalizeImageWorkers(envIntOr("IMAGE_WORKERS", 3)),
 		Port:                envIntOr("PORT", 8080),
 	}
 	mu sync.RWMutex
@@ -507,10 +607,60 @@ func buildImageStyleFromPresets(ids []string) string {
 		}
 	}
 	if len(parts) == 0 {
-		return "children's book illustration style, vibrant colors, clean lines, suitable for ages 6-10"
+		return "picture book illustration style, vibrant colors, clean lines, consistent characters, readable visual storytelling"
 	}
-	base := "children's book illustration, natural body proportions, suitable for ages 6-10, no chibi, no super-deformed, no oversized heads"
+	base := "picture book illustration, natural body proportions, consistent characters, no chibi, no super-deformed, no oversized heads"
 	return strings.Join(parts, ", ") + ", " + base
+}
+
+func FindWorkTypePreset(id string) (WorkTypePreset, bool) {
+	for _, wt := range WorkTypePresets {
+		if wt.ID == id {
+			return wt, true
+		}
+	}
+	return WorkTypePreset{}, false
+}
+
+func IsAllAgeWorkType(id string) bool {
+	return strings.HasPrefix(id, "all-age-")
+}
+
+func NormalizePageCount(n int) int {
+	if n < 4 {
+		return 4
+	}
+	if n > 60 {
+		return 60
+	}
+	return n
+}
+
+func NormalizeImageWorkers(n int) int {
+	if n < 1 {
+		return 1
+	}
+	if n > 8 {
+		return 8
+	}
+	return n
+}
+
+func sameStringSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := map[string]int{}
+	for _, s := range a {
+		seen[s]++
+	}
+	for _, s := range b {
+		seen[s]--
+		if seen[s] < 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // GetImageStyle 根据当前选中的风格 ID 返回完整的图片风格提示词
@@ -566,7 +716,7 @@ func RemoveCustomModel(id string) ([]ModelEntry, error) {
 }
 
 func defaultPromptTemplate() string {
-	return PromptPresets["police"]
+	return ""
 }
 
 // PromptPresets 预设提示词模板
@@ -890,12 +1040,14 @@ type ConfigPatch struct {
 	WorkType            *string      `json:"work_type"`
 	StoryType           *string      `json:"story_type"`
 	Theme               *string      `json:"theme"`
+	CharacterProfile    *string      `json:"character_profile"`
 	Style               *string      `json:"style"`
 	ImageStyle          *string      `json:"image_style"`
 	NegativeImagePrompt *string      `json:"negative_image_prompt"`
 	PromptTemplate      *string      `json:"prompt_template"`
 	BatchCount          *int         `json:"batch_count"`
 	PageCount           *int         `json:"page_count"`
+	ImageWorkers        *int         `json:"image_workers"`
 	Port                *int         `json:"port"`
 }
 
@@ -939,10 +1091,17 @@ func ApplyPatch(patch ConfigPatch) RuntimeConfig {
 	}
 	if patch.WorkType != nil {
 		current.WorkType = *patch.WorkType
-		for _, wt := range WorkTypePresets {
-			if wt.ID == *patch.WorkType {
-				current.StoryType = wt.StoryType
-				break
+		if wt, ok := FindWorkTypePreset(*patch.WorkType); ok {
+			current.StoryType = wt.StoryType
+		}
+		if IsAllAgeWorkType(*patch.WorkType) {
+			if sameStringSet(current.ImageStyles, DefaultImageStyles) {
+				current.ImageStyles = []string{"editorial"}
+				current.ImageStyle = buildImageStyleFromPresets(current.ImageStyles)
+			}
+			if sameStringSet(current.StoryStyles, DefaultStoryStyles) {
+				current.StoryStyles = []string{"all-age-literary-style"}
+				current.Style = buildStoryStyleFromPresets(current.StoryStyles)
 			}
 		}
 	}
@@ -951,6 +1110,9 @@ func ApplyPatch(patch ConfigPatch) RuntimeConfig {
 	}
 	if patch.Theme != nil {
 		current.Theme = *patch.Theme
+	}
+	if patch.CharacterProfile != nil {
+		current.CharacterProfile = *patch.CharacterProfile
 	}
 	if patch.Style != nil {
 		current.Style = *patch.Style
@@ -968,9 +1130,10 @@ func ApplyPatch(patch ConfigPatch) RuntimeConfig {
 		current.BatchCount = *patch.BatchCount
 	}
 	if patch.PageCount != nil {
-		if *patch.PageCount >= 12 && *patch.PageCount <= 30 {
-			current.PageCount = *patch.PageCount
-		}
+		current.PageCount = NormalizePageCount(*patch.PageCount)
+	}
+	if patch.ImageWorkers != nil {
+		current.ImageWorkers = NormalizeImageWorkers(*patch.ImageWorkers)
 	}
 	if patch.Port != nil {
 		current.Port = *patch.Port
@@ -1046,9 +1209,9 @@ func GetModelConfig(modelID string) (baseURL, apiKey, protocol, requestModel str
 	for _, m := range ModelPresets {
 		if m.ID == modelID && m.Base != "" {
 			// 预设模型使用其 Base 端点 + 全局密钥
-			proto := current.ProtocolType
-			if proto == "" {
-				proto = "openai"
+			proto := InferModelProtocol(m.ID, m.Base)
+			if current.ProtocolType != "" && current.ProtocolType != "openai" {
+				proto = current.ProtocolType
 			}
 			return m.Base, current.APIKey, string(api.NormalizeProtocol(proto)), modelID
 		}

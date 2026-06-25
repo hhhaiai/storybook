@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	urlpkg "net/url"
 	"strings"
 	"time"
 )
@@ -15,8 +16,8 @@ import (
 type Protocol string
 
 const (
-	ProtocolOpenAI    Protocol = "openai"    // OpenAI Chat Completions
-	ProtocolResponses Protocol = "responses" // 新 Responses 协议
+	ProtocolOpenAI    Protocol = "openai"    // OpenAI Chat Completions / 兼容协议
+	ProtocolResponses Protocol = "responses" // OpenAI Responses 协议
 	ProtocolClaude    Protocol = "claude"    // Anthropic Claude Messages
 	ProtocolGemini    Protocol = "gemini"    // Google Gemini
 )
@@ -24,13 +25,13 @@ const (
 // NormalizeProtocol 接受 UI/配置里的常见别名，并规整成内部协议名。
 func NormalizeProtocol(protocol string) Protocol {
 	switch strings.ToLower(strings.TrimSpace(protocol)) {
-	case "", "auto", "openai", "openai-chat", "openaichat", "chat", "chat-completions", "openai-chat-completions":
+	case "", "auto", "openai", "openai-compatible", "openai-chat", "openaichat", "chat", "chat-completions", "openai-chat-completions":
 		return ProtocolOpenAI
 	case "responses", "openai-response", "openai-responses", "openairesponse", "response":
 		return ProtocolResponses
-	case "claude", "anthropic":
+	case "claude", "anthropic", "anthropic-messages", "claude-messages":
 		return ProtocolClaude
-	case "gemini", "google", "google-gemini":
+	case "gemini", "google", "google-gemini", "google-ai", "generativelanguage":
 		return ProtocolGemini
 	default:
 		return ProtocolOpenAI
@@ -39,11 +40,8 @@ func NormalizeProtocol(protocol string) Protocol {
 
 // ProtocolAdapter 协议适配器接口
 type ProtocolAdapter interface {
-	// ChatCompletion 发送文本对话请求
 	ChatCompletion(ctx context.Context, model, prompt string) (string, error)
-	// ImageGeneration 发送图片生成请求
 	ImageGeneration(ctx context.Context, model, prompt string) (string, error)
-	// ListModels 获取模型列表
 	ListModels(ctx context.Context) ([]ModelInfo, error)
 }
 
@@ -72,25 +70,127 @@ func NewAdapter(protocol Protocol, baseURL, apiKey string, timeout time.Duration
 	}
 }
 
+func endpoint(baseURL, path string) string {
+	return strings.TrimRight(strings.TrimSpace(baseURL), "/") + path
+}
+
+func bearer(req *http.Request, apiKey string) {
+	if strings.TrimSpace(apiKey) != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+}
+
+func readAPIError(resp *http.Response) error {
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+	return fmt.Errorf("API error %d: %s", resp.StatusCode, sanitizeAPIErrorBody(string(body)))
+}
+
+func sanitizeAPIErrorBody(body string) string {
+	var doc any
+	if json.Unmarshal([]byte(body), &doc) == nil {
+		if scrubbed, ok := scrubSensitiveFields(doc); ok {
+			if data, err := json.Marshal(scrubbed); err == nil {
+				return string(data)
+			}
+		}
+	}
+	return body
+}
+
+func scrubSensitiveFields(v any) (any, bool) {
+	scrubbed := false
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, val := range x {
+			lk := strings.ToLower(k)
+			if strings.Contains(lk, "email") || strings.Contains(lk, "key") || strings.Contains(lk, "token") || strings.Contains(lk, "secret") {
+				out[k] = "[redacted]"
+				scrubbed = true
+				continue
+			}
+			child, changed := scrubSensitiveFields(val)
+			out[k] = child
+			scrubbed = scrubbed || changed
+		}
+		return out, scrubbed
+	case []any:
+		out := make([]any, len(x))
+		for i, val := range x {
+			child, changed := scrubSensitiveFields(val)
+			out[i] = child
+			scrubbed = scrubbed || changed
+		}
+		return out, scrubbed
+	default:
+		return v, false
+	}
+}
+
+func rawText(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var parts []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &parts) == nil {
+		var b strings.Builder
+		for _, p := range parts {
+			if p.Text != "" {
+				b.WriteString(p.Text)
+			}
+		}
+		return b.String()
+	}
+	return ""
+}
+
+func collectText(v any) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case []any:
+		var b strings.Builder
+		for _, item := range x {
+			b.WriteString(collectText(item))
+		}
+		return b.String()
+	case map[string]any:
+		if s, ok := x["output_text"].(string); ok {
+			return s
+		}
+		if s, ok := x["text"].(string); ok {
+			return s
+		}
+		if content, ok := x["content"]; ok {
+			return collectText(content)
+		}
+	}
+	return ""
+}
+
 // DetectProtocol 自动探测 API 支持的协议
 func DetectProtocol(baseURL, apiKey string) (Protocol, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// 按优先级尝试各种协议
 	protocols := []Protocol{ProtocolOpenAI, ProtocolResponses, ProtocolClaude, ProtocolGemini}
 	for _, proto := range protocols {
 		adapter := NewAdapter(proto, baseURL, apiKey, 5*time.Second)
-		_, err := adapter.ListModels(ctx)
-		if err == nil {
+		if _, err := adapter.ListModels(ctx); err == nil {
 			return proto, nil
 		}
 	}
-	// 默认返回 OpenAI 协议
 	return ProtocolOpenAI, nil
 }
 
-// ========== OpenAI 协议适配器 ==========
+// ========== OpenAI 兼容协议适配器 ==========
 
 type OpenAIAdapter struct {
 	baseURL string
@@ -100,9 +200,9 @@ type OpenAIAdapter struct {
 
 func (a *OpenAIAdapter) ChatCompletion(ctx context.Context, model, prompt string) (string, error) {
 	if strings.TrimSpace(model) == "" {
-		model = "gpt-4"
+		model = "gpt-4o-mini"
 	}
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"model": model,
 		"messages": []map[string]string{
 			{"role": "user", "content": prompt},
@@ -110,8 +210,11 @@ func (a *OpenAIAdapter) ChatCompletion(ctx context.Context, model, prompt string
 		"stream": false,
 	}
 	data, _ := json.Marshal(reqBody)
-	req, _ := http.NewRequestWithContext(ctx, "POST", a.baseURL+"/chat/completions", bytes.NewReader(data))
-	req.Header.Set("Authorization", "Bearer "+a.apiKey)
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint(a.baseURL, "/chat/completions"), bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	bearer(req, a.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := a.client.Do(req)
@@ -119,17 +222,16 @@ func (a *OpenAIAdapter) ChatCompletion(ctx context.Context, model, prompt string
 		return "", err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	if resp.StatusCode != http.StatusOK {
+		return "", readAPIError(resp)
 	}
 
 	var result struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content json.RawMessage `json:"content"`
 			} `json:"message"`
+			Text string `json:"text"`
 		} `json:"choices"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -138,21 +240,31 @@ func (a *OpenAIAdapter) ChatCompletion(ctx context.Context, model, prompt string
 	if len(result.Choices) == 0 {
 		return "", fmt.Errorf("no response from API")
 	}
-	return result.Choices[0].Message.Content, nil
+	text := rawText(result.Choices[0].Message.Content)
+	if text == "" {
+		text = result.Choices[0].Text
+	}
+	if strings.TrimSpace(text) == "" {
+		return "", fmt.Errorf("empty response from API")
+	}
+	return text, nil
 }
 
 func (a *OpenAIAdapter) ImageGeneration(ctx context.Context, model, prompt string) (string, error) {
 	if strings.TrimSpace(model) == "" {
-		model = "dall-e-3"
+		model = "gpt-image-1"
 	}
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"model":  model,
 		"prompt": prompt,
 		"n":      1,
 	}
 	data, _ := json.Marshal(reqBody)
-	req, _ := http.NewRequestWithContext(ctx, "POST", a.baseURL+"/images/generations", bytes.NewReader(data))
-	req.Header.Set("Authorization", "Bearer "+a.apiKey)
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint(a.baseURL, "/images/generations"), bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	bearer(req, a.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := a.client.Do(req)
@@ -160,39 +272,50 @@ func (a *OpenAIAdapter) ImageGeneration(ctx context.Context, model, prompt strin
 		return "", err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	if resp.StatusCode != http.StatusOK {
+		return "", readAPIError(resp)
 	}
 
 	var result struct {
 		Data []struct {
-			URL string `json:"url"`
+			URL      string `json:"url"`
+			ImageURL string `json:"image_url"`
+			B64JSON  string `json:"b64_json"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", err
 	}
 	if len(result.Data) == 0 {
-		return "", fmt.Errorf("no image URL")
+		return "", fmt.Errorf("no image data")
 	}
-	return result.Data[0].URL, nil
+	item := result.Data[0]
+	if item.URL != "" {
+		return item.URL, nil
+	}
+	if item.ImageURL != "" {
+		return item.ImageURL, nil
+	}
+	if item.B64JSON != "" {
+		return "data:image/png;base64," + item.B64JSON, nil
+	}
+	return "", fmt.Errorf("image response has no url or b64_json")
 }
 
 func (a *OpenAIAdapter) ListModels(ctx context.Context) ([]ModelInfo, error) {
-	req, _ := http.NewRequestWithContext(ctx, "GET", a.baseURL+"/models", nil)
-	req.Header.Set("Authorization", "Bearer "+a.apiKey)
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint(a.baseURL, "/models"), nil)
+	if err != nil {
+		return nil, err
+	}
+	bearer(req, a.apiKey)
 
 	resp, err := a.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	if resp.StatusCode != http.StatusOK {
+		return nil, readAPIError(resp)
 	}
 
 	var result struct {
@@ -203,10 +326,11 @@ func (a *OpenAIAdapter) ListModels(ctx context.Context) ([]ModelInfo, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}
-
-	models := make([]ModelInfo, len(result.Data))
-	for i, m := range result.Data {
-		models[i] = ModelInfo{ID: m.ID}
+	models := make([]ModelInfo, 0, len(result.Data))
+	for _, m := range result.Data {
+		if m.ID != "" {
+			models = append(models, ModelInfo{ID: m.ID})
+		}
 	}
 	return models, nil
 }
@@ -221,17 +345,19 @@ type ResponsesAdapter struct {
 
 func (a *ResponsesAdapter) ChatCompletion(ctx context.Context, model, prompt string) (string, error) {
 	if strings.TrimSpace(model) == "" {
-		model = "grok-4"
+		model = "gpt-4o-mini"
 	}
-	// 支持两种输入格式：字符串和消息数组
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"model":  model,
 		"input":  prompt,
 		"stream": false,
 	}
 	data, _ := json.Marshal(reqBody)
-	req, _ := http.NewRequestWithContext(ctx, "POST", a.baseURL+"/responses", bytes.NewReader(data))
-	req.Header.Set("Authorization", "Bearer "+a.apiKey)
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint(a.baseURL, "/responses"), bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	bearer(req, a.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := a.client.Do(req)
@@ -239,52 +365,36 @@ func (a *ResponsesAdapter) ChatCompletion(ctx context.Context, model, prompt str
 		return "", err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	if resp.StatusCode != http.StatusOK {
+		return "", readAPIError(resp)
 	}
 
-	var result struct {
-		Output string `json:"output"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	var doc map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
 		return "", err
 	}
-	return result.Output, nil
+	text := collectText(doc["output_text"])
+	if text == "" {
+		text = collectText(doc["output"])
+	}
+	if text == "" {
+		text = collectText(doc["choices"])
+	}
+	if strings.TrimSpace(text) == "" {
+		return "", fmt.Errorf("empty responses output")
+	}
+	return text, nil
 }
 
 func (a *ResponsesAdapter) ImageGeneration(ctx context.Context, model, prompt string) (string, error) {
-	return "", fmt.Errorf("responses protocol does not support image generation")
+	// 许多网关把图片仍挂在 OpenAI 兼容 /images/generations；这里优先复用，兼容更多模型。
+	return (&OpenAIAdapter{baseURL: a.baseURL, apiKey: a.apiKey, client: a.client}).ImageGeneration(ctx, model, prompt)
 }
 
 func (a *ResponsesAdapter) ListModels(ctx context.Context) ([]ModelInfo, error) {
-	// Responses 协议通常没有单独的 /models 端点，尝试 OpenAI 兼容端点
-	req, _ := http.NewRequestWithContext(ctx, "GET", a.baseURL+"/models", nil)
-	req.Header.Set("Authorization", "Bearer "+a.apiKey)
-
-	resp, err := a.client.Do(req)
+	models, err := (&OpenAIAdapter{baseURL: a.baseURL, apiKey: a.apiKey, client: a.client}).ListModels(ctx)
 	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
 		return []ModelInfo{{ID: "unknown", Name: "Unknown Model"}}, nil
-	}
-
-	var result struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return []ModelInfo{{ID: "unknown", Name: "Unknown Model"}}, nil
-	}
-
-	models := make([]ModelInfo, len(result.Data))
-	for i, m := range result.Data {
-		models[i] = ModelInfo{ID: m.ID}
 	}
 	return models, nil
 }
@@ -299,9 +409,9 @@ type ClaudeAdapter struct {
 
 func (a *ClaudeAdapter) ChatCompletion(ctx context.Context, model, prompt string) (string, error) {
 	if strings.TrimSpace(model) == "" {
-		model = "claude-3-opus"
+		model = "claude-3-5-sonnet-latest"
 	}
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"model": model,
 		"messages": []map[string]string{
 			{"role": "user", "content": prompt},
@@ -309,8 +419,14 @@ func (a *ClaudeAdapter) ChatCompletion(ctx context.Context, model, prompt string
 		"max_tokens": 4096,
 	}
 	data, _ := json.Marshal(reqBody)
-	req, _ := http.NewRequestWithContext(ctx, "POST", a.baseURL+"/messages", bytes.NewReader(data))
-	req.Header.Set("Authorization", "Bearer "+a.apiKey)
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint(a.baseURL, "/messages"), bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(a.apiKey) != "" {
+		req.Header.Set("x-api-key", a.apiKey)
+		req.Header.Set("Authorization", "Bearer "+a.apiKey) // 兼容代理网关
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("anthropic-version", "2023-06-01")
 
@@ -319,36 +435,40 @@ func (a *ClaudeAdapter) ChatCompletion(ctx context.Context, model, prompt string
 		return "", err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	if resp.StatusCode != http.StatusOK {
+		return "", readAPIError(resp)
 	}
 
 	var result struct {
 		Content []struct {
+			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", err
 	}
-	if len(result.Content) == 0 {
+	var b strings.Builder
+	for _, c := range result.Content {
+		if c.Text != "" {
+			b.WriteString(c.Text)
+		}
+	}
+	if strings.TrimSpace(b.String()) == "" {
 		return "", fmt.Errorf("no response")
 	}
-	return result.Content[0].Text, nil
+	return b.String(), nil
 }
 
 func (a *ClaudeAdapter) ImageGeneration(ctx context.Context, model, prompt string) (string, error) {
-	return "", fmt.Errorf("claude protocol does not support image generation")
+	return "", fmt.Errorf("claude protocol does not support image generation; choose an OpenAI-compatible image model/provider")
 }
 
 func (a *ClaudeAdapter) ListModels(ctx context.Context) ([]ModelInfo, error) {
-	// Claude 没有公开的 models 端点，返回常见模型
 	return []ModelInfo{
-		{ID: "claude-3-opus", Name: "Claude 3 Opus"},
-		{ID: "claude-3-sonnet", Name: "Claude 3 Sonnet"},
-		{ID: "claude-3-haiku", Name: "Claude 3 Haiku"},
+		{ID: "claude-3-5-sonnet-latest", Name: "Claude Sonnet", Type: "text"},
+		{ID: "claude-3-5-haiku-latest", Name: "Claude Haiku", Type: "text"},
+		{ID: "claude-sonnet-4-20250514", Name: "Claude Sonnet 4", Type: "text"},
 	}, nil
 }
 
@@ -360,26 +480,39 @@ type GeminiAdapter struct {
 	client  *http.Client
 }
 
+func (a *GeminiAdapter) geminiURL(path string) string {
+	u := endpoint(a.baseURL, path)
+	if strings.TrimSpace(a.apiKey) == "" {
+		return u
+	}
+	sep := "?"
+	if strings.Contains(u, "?") {
+		sep = "&"
+	}
+	return u + sep + "key=" + urlpkg.QueryEscape(a.apiKey)
+}
+
 func (a *GeminiAdapter) ChatCompletion(ctx context.Context, model, prompt string) (string, error) {
 	if strings.TrimSpace(model) == "" {
-		model = "gemini-pro"
+		model = "gemini-2.5-flash"
 	}
 	model = strings.TrimPrefix(model, "models/")
-	reqBody := map[string]interface{}{
-		"contents": []map[string]interface{}{
+	reqBody := map[string]any{
+		"contents": []map[string]any{
 			{
-				"role": "user",
-				"parts": []map[string]string{
-					{"text": prompt},
-				},
+				"role":  "user",
+				"parts": []map[string]string{{"text": prompt}},
 			},
 		},
 	}
 	data, _ := json.Marshal(reqBody)
-	// Gemini 端点格式：/v1beta/models/{model}:generateContent
-	url := a.baseURL + "/models/" + model + ":generateContent"
-	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(data))
-	req.Header.Set("Authorization", "Bearer "+a.apiKey)
+	req, err := http.NewRequestWithContext(ctx, "POST", a.geminiURL("/models/"+model+":generateContent"), bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(a.apiKey) != "" {
+		req.Header.Set("x-goog-api-key", a.apiKey)
+	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := a.client.Do(req)
@@ -387,10 +520,8 @@ func (a *GeminiAdapter) ChatCompletion(ctx context.Context, model, prompt string
 		return "", err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	if resp.StatusCode != http.StatusOK {
+		return "", readAPIError(resp)
 	}
 
 	var result struct {
@@ -408,29 +539,38 @@ func (a *GeminiAdapter) ChatCompletion(ctx context.Context, model, prompt string
 	if len(result.Candidates) == 0 || len(result.Candidates[0].Content.Parts) == 0 {
 		return "", fmt.Errorf("no response")
 	}
-	return result.Candidates[0].Content.Parts[0].Text, nil
+	var b strings.Builder
+	for _, p := range result.Candidates[0].Content.Parts {
+		b.WriteString(p.Text)
+	}
+	if strings.TrimSpace(b.String()) == "" {
+		return "", fmt.Errorf("empty response")
+	}
+	return b.String(), nil
 }
 
 func (a *GeminiAdapter) ImageGeneration(ctx context.Context, model, prompt string) (string, error) {
-	return "", fmt.Errorf("gemini protocol does not support image generation yet")
+	return "", fmt.Errorf("gemini protocol text is supported; for images choose an OpenAI-compatible image provider such as Imagen/GPT Image/Flux via a compatible gateway")
 }
 
 func (a *GeminiAdapter) ListModels(ctx context.Context) ([]ModelInfo, error) {
-	// Gemini models 端点
-	req, _ := http.NewRequestWithContext(ctx, "GET", a.baseURL+"/models", nil)
-	req.Header.Set("Authorization", "Bearer "+a.apiKey)
+	req, err := http.NewRequestWithContext(ctx, "GET", a.geminiURL("/models"), nil)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(a.apiKey) != "" {
+		req.Header.Set("x-goog-api-key", a.apiKey)
+	}
 
 	resp, err := a.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		// 返回默认模型列表
+	if resp.StatusCode != http.StatusOK {
 		return []ModelInfo{
-			{ID: "gemini-pro", Name: "Gemini Pro"},
-			{ID: "gemini-pro-vision", Name: "Gemini Pro Vision"},
+			{ID: "gemini-2.5-flash", Name: "Gemini 2.5 Flash", Type: "text"},
+			{ID: "gemini-2.5-pro", Name: "Gemini 2.5 Pro", Type: "text"},
 		}, nil
 	}
 
@@ -440,12 +580,14 @@ func (a *GeminiAdapter) ListModels(ctx context.Context) ([]ModelInfo, error) {
 		} `json:"models"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return []ModelInfo{{ID: "gemini-pro"}}, nil
+		return []ModelInfo{{ID: "gemini-2.5-flash", Type: "text"}}, nil
 	}
-
-	models := make([]ModelInfo, len(result.Models))
-	for i, m := range result.Models {
-		models[i] = ModelInfo{ID: m.Name}
+	models := make([]ModelInfo, 0, len(result.Models))
+	for _, m := range result.Models {
+		id := strings.TrimPrefix(m.Name, "models/")
+		if id != "" {
+			models = append(models, ModelInfo{ID: id})
+		}
 	}
 	return models, nil
 }

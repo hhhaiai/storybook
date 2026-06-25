@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -33,9 +34,9 @@ func logAPICall(kind, model string, dur time.Duration, ok bool, err error) {
 
 const (
 	MinImageBytes     = 40 * 1024        // 40KB — solid-color fallbacks are ~13KB
-	MaxImageRetries   = 6                // 默认图片重试次数
-	CoverImageRetries = 10               // 封面海报重试次数（关键页面多试）
-	FallbackRetries   = 8                // 兜底方案重试次数
+	MaxImageRetries   = 3                // 默认图片重试次数
+	CoverImageRetries = 4                // 封面海报重试次数（关键页面多试）
+	FallbackRetries   = 1                // 兜底方案重试次数
 	MaxResponseBytes  = 20 * 1024 * 1024 // 20MB — 图片下载最大字节数，防止 OOM
 )
 
@@ -48,6 +49,13 @@ type RuntimeClient struct {
 	Timeout      time.Duration
 	ImageTimeout time.Duration
 	adapter      ProtocolAdapter // 协议适配器
+}
+
+func maxDuration(a, b time.Duration) time.Duration {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func NewRuntimeClient(baseURL, apiKey, textModel, imageModel string, timeout time.Duration, protocol string) *RuntimeClient {
@@ -66,7 +74,7 @@ func NewRuntimeClient(baseURL, apiKey, textModel, imageModel string, timeout tim
 		ImageModel:   imageModel,
 		Protocol:     protocol,
 		Timeout:      timeout,
-		ImageTimeout: 90 * time.Second,
+		ImageTimeout: maxDuration(90*time.Second, timeout),
 		adapter:      adapter,
 	}
 }
@@ -204,6 +212,9 @@ func (c *RuntimeClient) imageWithRetries(ctx context.Context, prompt string, max
 		}
 		data, err := c.imageOnce(ctx, prompt)
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, fmt.Errorf("image cancelled: %w", ctxErr)
+			}
 			lastErr = fmt.Errorf("attempt %d/%d: %w", attempt, maxAttempts, err)
 			time.Sleep(time.Duration(attempt*2) * time.Second)
 			continue
@@ -255,6 +266,13 @@ func (c *RuntimeClient) imageOnce(ctx context.Context, prompt string) (data []by
 		if err != nil {
 			return nil, err
 		}
+		if data, ok, err := decodeDataURL(urlStr); ok || err != nil {
+			if err != nil {
+				return nil, err
+			}
+			fmt.Printf("  🖼 图片返回: %v (base64 size=%dKB, protocol=%s)\n", time.Since(start).Round(time.Millisecond), len(data)/1024, c.Protocol)
+			return data, nil
+		}
 		// 下载图片
 		downloadReq, err := http.NewRequestWithContext(ctx, "GET", urlStr, nil)
 		if err != nil {
@@ -294,18 +312,30 @@ func (c *RuntimeClient) imageOnce(ctx context.Context, prompt string) (data []by
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("api %d: %s", resp.StatusCode, string(raw))
+		return nil, fmt.Errorf("api %d: %s", resp.StatusCode, sanitizeAPIErrorBody(string(raw)))
 	}
 	var out struct {
 		Data []struct {
-			URL string `json:"url"`
+			URL     string `json:"url"`
+			B64JSON string `json:"b64_json"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, fmt.Errorf("decode: %w", err)
 	}
-	if len(out.Data) == 0 || out.Data[0].URL == "" {
+	if len(out.Data) == 0 {
 		return nil, fmt.Errorf("empty response")
+	}
+	if out.Data[0].B64JSON != "" {
+		data, err := base64.StdEncoding.DecodeString(out.Data[0].B64JSON)
+		if err != nil {
+			return nil, fmt.Errorf("decode b64_json: %w", err)
+		}
+		fmt.Printf("  🖼 图片返回: %v (base64 size=%dKB)\n", time.Since(start).Round(time.Millisecond), len(data)/1024)
+		return data, nil
+	}
+	if out.Data[0].URL == "" {
+		return nil, fmt.Errorf("image response has no url or b64_json")
 	}
 	downloadReq, err := http.NewRequestWithContext(ctx, "GET", out.Data[0].URL, nil)
 	if err != nil {
@@ -323,6 +353,26 @@ func (c *RuntimeClient) imageOnce(ctx context.Context, prompt string) (data []by
 	data, _ = io.ReadAll(io.LimitReader(imgResp.Body, MaxResponseBytes))
 	fmt.Printf("  🖼 图片下载: %v (size=%dKB)\n", time.Since(start).Round(time.Millisecond), len(data)/1024)
 	return data, nil
+}
+
+func decodeDataURL(s string) ([]byte, bool, error) {
+	if !strings.HasPrefix(s, "data:") {
+		return nil, false, nil
+	}
+	idx := strings.Index(s, ",")
+	if idx < 0 {
+		return nil, true, fmt.Errorf("invalid data url")
+	}
+	meta := s[:idx]
+	payload := s[idx+1:]
+	if !strings.Contains(meta, ";base64") {
+		return nil, true, fmt.Errorf("unsupported data url encoding")
+	}
+	data, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		return nil, true, fmt.Errorf("decode data url: %w", err)
+	}
+	return data, true, nil
 }
 
 // isSSEResponse 检测响应是否为 SSE 流格式（第一行非空以 "data:" 开头）

@@ -260,7 +260,14 @@ func handleResume(w http.ResponseWriter, r *http.Request) {
 
 	// 启动新的 runJob，传入 StoryFolder 让 generator 续做
 	cfg := config.Get()
-	runCtx, cancel := context.WithCancel(r.Context())
+	cfg.Theme = job.Theme
+	cfg.StoryType = job.StoryType
+	cfg.Style = job.Style
+	if job.PageCount > 0 {
+		cfg.PageCount = config.NormalizePageCount(job.PageCount)
+	}
+	// 父 ctx 必须是 Background：handler 返回后 r.Context() 会取消，续做任务不能继承它。
+	runCtx, cancel := context.WithCancel(context.Background())
 	registerJobCancel(jobID, cancel)
 	go func(jID string, runCtx context.Context, runCancel context.CancelFunc, resumeDir string) {
 		defer unregisterJobCancel(jID)
@@ -530,8 +537,7 @@ func runJobResume(ctx context.Context, cfg config.RuntimeConfig, jobID, resumeDi
 				j.StoryFolder = htmlPath[:idx]
 			}
 			j.Logs = append(j.Logs, "✅ 续做完成")
-			coverPath := filepath.Join(filepath.Dir(htmlPath), "images", "1.jpg")
-			if _, statErr := os.Stat(coverPath); statErr == nil {
+			if coverPath, ok := findCoverPath(filepath.Dir(htmlPath)); ok {
 				rel, _ := filepath.Rel(".", coverPath)
 				j.CoverURL = "/" + rel
 			}
@@ -604,14 +610,17 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		TextModel      string `json:"text_model"`
-		ImageModel     string `json:"image_model"`
-		StoryType      string `json:"story_type"`
-		Theme          string `json:"theme"`
-		Style          string `json:"style"`
-		PromptTemplate string `json:"prompt_template"`
-		Count          int    `json:"count"`
-		PageCount      int    `json:"page_count"`
+		TextModel        string `json:"text_model"`
+		ImageModel       string `json:"image_model"`
+		WorkType         string `json:"work_type"`
+		StoryType        string `json:"story_type"`
+		Theme            string `json:"theme"`
+		CharacterProfile string `json:"character_profile"`
+		Style            string `json:"style"`
+		PromptTemplate   string `json:"prompt_template"`
+		Count            int    `json:"count"`
+		PageCount        int    `json:"page_count"`
+		ImageWorkers     int    `json:"image_workers"`
 	}
 	if err := decodeBody(w, r, &req); err != nil {
 		http.Error(w, err.Error(), 400)
@@ -624,11 +633,26 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	if req.ImageModel != "" {
 		cfg.ImageModel = req.ImageModel
 	}
+	if req.WorkType != "" {
+		cfg.WorkType = req.WorkType
+		if wt, ok := config.FindWorkTypePreset(req.WorkType); ok {
+			cfg.StoryType = wt.StoryType
+		}
+	}
 	if req.StoryType != "" {
-		cfg.StoryType = req.StoryType
+		if wt, ok := config.FindWorkTypePreset(req.StoryType); ok {
+			// 兼容旧前端：曾把作品类型 ID 误传到 story_type。
+			cfg.WorkType = wt.ID
+			cfg.StoryType = wt.StoryType
+		} else {
+			cfg.StoryType = req.StoryType
+		}
 	}
 	if req.Theme != "" {
 		cfg.Theme = req.Theme
+	}
+	if req.CharacterProfile != "" {
+		cfg.CharacterProfile = req.CharacterProfile
 	}
 	if req.Style != "" {
 		cfg.Style = req.Style
@@ -643,8 +667,11 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	if req.Count > 0 {
 		cfg.BatchCount = req.Count
 	}
-	if req.PageCount >= 12 && req.PageCount <= 30 {
-		cfg.PageCount = req.PageCount
+	if req.PageCount > 0 {
+		cfg.PageCount = config.NormalizePageCount(req.PageCount)
+	}
+	if req.ImageWorkers > 0 {
+		cfg.ImageWorkers = config.NormalizeImageWorkers(req.ImageWorkers)
 	}
 
 	ids := make([]string, 0, cfg.BatchCount)
@@ -754,13 +781,22 @@ func runJob(ctx context.Context, cfg config.RuntimeConfig, jobID string) {
 				j.StoryFolder = htmlPath[:idx]
 			}
 			j.Logs = append(j.Logs, "✅ 绘本生成完成")
-			coverPath := filepath.Join(filepath.Dir(htmlPath), "images", "1.jpg")
-			if _, statErr := os.Stat(coverPath); statErr == nil {
+			if coverPath, ok := findCoverPath(filepath.Dir(htmlPath)); ok {
 				rel, _ := filepath.Rel(".", coverPath)
 				j.CoverURL = "/" + rel
 			}
 		}
 	})
+}
+
+func findCoverPath(storyDir string) (string, bool) {
+	for _, name := range []string{"1.png", "1.jpg", "1.jpeg"} {
+		p := filepath.Join(storyDir, "images", name)
+		if _, err := os.Stat(p); err == nil {
+			return p, true
+		}
+	}
+	return "", false
 }
 
 func handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -899,11 +935,11 @@ func handleStories(w http.ResponseWriter, r *http.Request) {
 		if err := json.Unmarshal(raw, &book); err != nil {
 			continue
 		}
-		coverFile := filepath.Join(outputDir, e.Name(), "images", "1.jpg")
-		coverPath := fmt.Sprintf("/outputs/%s/images/1.jpg", e.Name())
 		hasCover := false
-		if _, statErr := os.Stat(coverFile); statErr == nil {
+		coverPath := fmt.Sprintf("/outputs/%s/images/1.jpg", e.Name())
+		if coverFile, ok := findCoverPath(filepath.Join(outputDir, e.Name())); ok {
 			hasCover = true
+			coverPath = "/" + filepath.ToSlash(coverFile)
 		}
 		items = append(items, Item{
 			Name:      e.Name(),

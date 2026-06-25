@@ -1,11 +1,15 @@
 package generator
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
+	"image"
+	"image/color"
+	"image/png"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -79,6 +83,7 @@ type BookData struct {
 	StoryType  string `json:"story_type"`
 	Theme      string `json:"theme"`
 	Style      string `json:"style"`
+	Characters string `json:"characters,omitempty"`
 	ImageModel string `json:"image_model"`
 	ImageStyle string `json:"image_style"`
 	PageCount  int    `json:"page_count"`
@@ -114,7 +119,7 @@ func (g *Generator) getTextClient() *api.RuntimeClient {
 // getImageClient 动态创建图片模型客户端
 func (g *Generator) getImageClient() *api.RuntimeClient {
 	baseURL, apiKey, protocol, requestModel := config.GetModelConfig(g.cfg.ImageModel)
-	return api.NewRuntimeClient(baseURL, apiKey, "", requestModel, 120*time.Second, protocol)
+	return api.NewRuntimeClient(baseURL, apiKey, "", requestModel, 300*time.Second, protocol)
 }
 
 var randomThemes = []string{
@@ -307,12 +312,8 @@ Output format (JSON only):
 }
 
 func (g *Generator) planStory(ctx context.Context, theme string) (PlanData, error) {
-	prompt := fmt.Sprintf(`请为以下儿童绘本主题做一次简短策划。
-主题：%s
-
-## 故事名要求（最重要！）
-
-名字是孩子决定要不要看这本书的第一秒。必须做到：一看就想去翻！
+	audience := "儿童读者，语言温暖、清楚、有安全感"
+	titleGuide := `名字是孩子决定要不要看这本书的第一秒。必须做到：一看就想去翻！
 
 ### 取名公式（随机用一种）：
 - 角色昵称 + 意外物件："嘟嘟警车收到了一封彩虹信"
@@ -334,19 +335,50 @@ func (g *Generator) planStory(ctx context.Context, theme string) (PlanData, erro
 "藏在书包里的小秘密"
 
 ### 坏名字（绝对不要）：
-"正义追击"、"勇敢的警察"、"救援行动"、"守护平安"（太成人化）
+	"正义追击"、"勇敢的警察"、"救援行动"、"守护平安"（太严肃、太像口号）
 "小明的一天"、"快乐的一天"（太平淡）
 
 ### 技巧：
 - 用ABB式昵称（嘟嘟、乖乖、圆圆）更有童趣
 - 加一个意想不到的物件（彩虹信、月亮饼干、夜光手电筒）
 - 带问号或悬念更好奇
-- 7-15个字最佳
+- 7-15个字最佳`
+	if config.IsAllAgeWorkType(g.cfg.WorkType) || (strings.Contains(g.cfg.StoryType, "合家阅读") || strings.Contains(g.cfg.StoryType, "通用")) {
+		audience = "家庭友好读者，允许细腻、克制、文学化的表达；避免低幼口吻"
+		titleGuide = `名字要适合通用绘本/图像小说：克制、有画面、有余味，避免鸡汤和低幼化。
+
+### 取名方向（随机用一种）：
+- 意象 + 情绪："雨停之前的那间咖啡馆"
+- 人物 + 选择："林深决定不再等待"
+- 时间/地点 + 悬念："凌晨三点的末班车"
+- 物件 + 隐喻："没有寄出的蓝色明信片"
+
+### 要求：
+- 6-18个字最佳
+- 可以诗性、都市、现实、悬疑或疗愈
+- 不要儿童昵称，不要"小熊/小猫/魔法帽"这类低幼标题
+- 保持家庭友好，避免不适宜内容`
+	}
+
+	characterInstruction := "请根据主题设计角色。"
+	if strings.TrimSpace(g.cfg.CharacterProfile) != "" {
+		characterInstruction = "用户已指定固定角色设定，必须原样保留这些角色的姓名、年龄、发型、服装、体型和关键道具，不要替换主角：\n" + strings.TrimSpace(g.cfg.CharacterProfile)
+	}
+
+	prompt := fmt.Sprintf(`请为以下%s做一次简短策划。
+作品类型：%s
+目标读者：%s
+主题：%s
+固定角色要求：%s
+
+## 故事名要求（最重要！）
+
+%s
 
 ## 其他要求
 2. 输出主主题
 3. 输出 60-100 字的故事梗概
-4. 输出角色描述（外貌、服装、体型细节，用于保持画面一致性）。例如："男警官：短发、英俊、穿深蓝色警服、戴警帽、身材挺拔；小朋友：5-8岁、穿彩色衣服"
+4. 输出角色描述（外貌、服装、年龄感、体型细节、关键道具，用于保持画面一致性）。如果用户指定固定角色，characters 字段必须以用户角色为准。
 5. 仅输出 JSON，不要输出任何其他内容
 
 JSON格式：
@@ -355,7 +387,7 @@ JSON格式：
   "theme": "主主题",
   "summary": "简短梗概",
   "characters": "角色描述"
-}`, theme)
+}`, g.cfg.StoryType, g.cfg.StoryType, audience, theme, characterInstruction, titleGuide)
 	client := g.getTextClient()
 	raw, err := client.Chat(ctx, prompt, 1024)
 	if err != nil {
@@ -365,8 +397,14 @@ JSON格式：
 	if err := json.Unmarshal([]byte(extractJSON(raw)), &plan); err != nil {
 		return PlanData{Title: theme, Theme: theme, Characters: fallbackCharactersCN}, nil
 	}
+	if strings.TrimSpace(g.cfg.CharacterProfile) != "" {
+		plan.Characters = strings.TrimSpace(g.cfg.CharacterProfile)
+	}
 	if plan.Characters == "" {
 		plan.Characters = fallbackCharactersCN
+		if config.IsAllAgeWorkType(g.cfg.WorkType) || (strings.Contains(g.cfg.StoryType, "合家阅读") || strings.Contains(g.cfg.StoryType, "通用")) {
+			plan.Characters = "主角：自然比例、服装简洁、有稳定的发型和标志性配饰；配角：与主角形成清晰区分，所有页面保持一致"
+		}
 	}
 	return plan, nil
 }
@@ -406,6 +444,7 @@ func (g *Generator) generateStoryText(ctx context.Context, plan PlanData) (strin
 		tmplID := g.detectTemplateID()
 		prompt = style.AssembleStoryPrompt(style.StoryPromptRequest{
 			TemplateID: tmplID,
+			StoryType:  g.cfg.StoryType,
 			Theme:      plan.Theme,
 			PageCount:  g.cfg.PageCount,
 			Style:      g.cfg.Style,
@@ -461,7 +500,14 @@ func (g *Generator) parsePages(raw string) []Page {
 
 // buildBook 生成所有页面图片并组装绘本数据
 // resumeMode=true 时跳过已存在的 images/N.jpg
-const maxImageWorkers = 5
+const defaultMaxImageWorkers = 3
+
+func (g *Generator) imageWorkers() int {
+	if g.cfg.ImageWorkers <= 0 {
+		return defaultMaxImageWorkers
+	}
+	return config.NormalizeImageWorkers(g.cfg.ImageWorkers)
+}
 
 func (g *Generator) buildBook(ctx context.Context, dir string, plan PlanData, pages []Page, resumeMode bool) (*BookData, error) {
 	book := &BookData{
@@ -470,6 +516,7 @@ func (g *Generator) buildBook(ctx context.Context, dir string, plan PlanData, pa
 		StoryType:  g.cfg.StoryType,
 		Theme:      plan.Theme,
 		Style:      g.cfg.Style,
+		Characters: plan.Characters,
 		ImageModel: g.cfg.ImageModel,
 		ImageStyle: g.cfg.ImageStyle,
 		PageCount:  len(pages),
@@ -482,12 +529,11 @@ func (g *Generator) buildBook(ctx context.Context, dir string, plan PlanData, pa
 	if resumeMode {
 		for i := range pages {
 			pageNo := i + 1
-			imgPath := filepath.Join(dir, "images", fmt.Sprintf("%d.jpg", pageNo))
-			if _, err := os.Stat(imgPath); err == nil {
+			if imgFile, ok := existingImageFile(dir, pageNo); ok {
 				existingImages[pageNo] = true
 				book.Pages[i] = Page{
 					PageNum: pageNo, Text: pages[i].Text, Subtitle: pages[i].Subtitle,
-					Image: fmt.Sprintf("images/%d.jpg", pageNo),
+					Image: "images/" + imgFile,
 				}
 			}
 		}
@@ -496,11 +542,12 @@ func (g *Generator) buildBook(ctx context.Context, dir string, plan PlanData, pa
 		}
 	}
 
-	fmt.Printf("🚀 图片并发生成: %d workers, 共%d页\n", maxImageWorkers, len(pages))
+	workers := g.imageWorkers()
+	fmt.Printf("🚀 图片并发生成: %d workers, 共%d页\n", workers, len(pages))
 	var (
 		mu   sync.Mutex
 		wg   sync.WaitGroup
-		sem  = make(chan struct{}, maxImageWorkers)
+		sem  = make(chan struct{}, workers)
 		errs []error
 		done int
 	)
@@ -547,20 +594,21 @@ func (g *Generator) buildBook(ctx context.Context, dir string, plan PlanData, pa
 					return
 				}
 				fmt.Printf("⚠️  第%d页图片生成失败: %v，使用备用方案\n", pageNo, err)
-				mu.Lock()
-				errs = append(errs, &ImageError{Page: pageNo, Stage: "primary", Err: err})
-				mu.Unlock()
 
 				data, err = g.createFallbackImage(ctx, pageNo)
 				if err != nil {
-					mu.Lock()
-					errs = append(errs, &ImageError{Page: pageNo, Stage: "fallback", Err: err})
-					mu.Unlock()
-					return
+					fmt.Printf("⚠️  第%d页备用图片也失败: %v，使用本地安全占位图\n", pageNo, err)
+					data, err = createLocalPlaceholderImage(pageNo)
+					if err != nil {
+						mu.Lock()
+						errs = append(errs, &ImageError{Page: pageNo, Stage: "fallback", Err: err})
+						mu.Unlock()
+						return
+					}
 				}
 			}
 
-			imgFile := fmt.Sprintf("%d.jpg", pageNo)
+			imgFile := fmt.Sprintf("%d%s", pageNo, imageExt(data))
 			imgPath := filepath.Join(dir, "images", imgFile)
 			if err := os.WriteFile(imgPath, data, 0644); err != nil {
 				mu.Lock()
@@ -588,6 +636,16 @@ func (g *Generator) buildBook(ctx context.Context, dir string, plan PlanData, pa
 	return book, nil
 }
 
+func existingImageFile(dir string, pageNo int) (string, bool) {
+	for _, ext := range []string{".png", ".jpg", ".jpeg"} {
+		name := fmt.Sprintf("%d%s", pageNo, ext)
+		if _, err := os.Stat(filepath.Join(dir, "images", name)); err == nil {
+			return name, true
+		}
+	}
+	return "", false
+}
+
 // generateIllustrations 为每页生成纯英文视觉场景描述
 func (g *Generator) generateIllustrations(ctx context.Context, plan PlanData, pages []Page) []string {
 	var storyLines []string
@@ -603,7 +661,19 @@ func (g *Generator) generateIllustrations(ctx context.Context, plan PlanData, pa
 	visualID := g.getVisualID()
 	vs := style.GetVisualStyle(visualID)
 
-	prompt := fmt.Sprintf(`You are a children's book illustration describer. For each page below, write a SHORT visual scene description in ENGLISH ONLY.
+	audience := "children's picture book"
+	extraRules := `- Match the soft flat storybook style described above
+- Use pastel colors: soft green, gentle blue, warm beige
+- Low shading, clean shapes, friendly atmosphere
+- Medium shot with slight low-angle perspective`
+	if config.IsAllAgeWorkType(g.cfg.WorkType) || (strings.Contains(g.cfg.StoryType, "合家阅读") || strings.Contains(g.cfg.StoryType, "通用")) {
+		audience = "family-friendly picture book / graphic novel"
+		extraRules = `- Use tasteful family-friendly visual storytelling with natural human proportions
+- Prefer subtle symbolism, cinematic framing, nuanced expressions, and refined colors
+- Avoid childish proportions, chibi design, toy-like cuteness, graphic violence, unsafe content, or disturbing imagery`
+	}
+
+	prompt := fmt.Sprintf(`You are a %s illustration describer. For each page below, write a SHORT visual scene description in ENGLISH ONLY.
 
 STYLE (apply to ALL descriptions):
 %s
@@ -615,10 +685,7 @@ RULES:
 - NEVER include any text, letters, titles, signs, speech bubbles, or captions in descriptions
 - Each description: 1-2 sentences, 20-40 words
 - Character appearances MUST stay consistent: %s
-- Match the soft flat storybook style described above
-- Use pastel colors: soft green, gentle blue, warm beige
-- Low shading, clean shapes, friendly atmosphere
-- Medium shot with slight low-angle perspective
+%s
 
 Story content:
 %s
@@ -626,7 +693,7 @@ Story content:
 Output format (one description per line, NO numbering, NO prefix):
 description for page 1
 description for page 2
-...`, vs.BasePrompt, vs.ColorScheme, chars, strings.Join(storyLines, "\n"))
+...`, audience, vs.BasePrompt, vs.ColorScheme, chars, extraRules, strings.Join(storyLines, "\n"))
 
 	var raw string
 	var err error
@@ -680,6 +747,9 @@ func (g *Generator) createPosterImage(ctx context.Context, plan PlanData) ([]byt
 	charIDs := g.detectCharacterIDs(plan)
 	visualID := g.getVisualID()
 	fullPrompt := style.AssembleCoverPrompt(plan.Title, charIDs, visualID)
+	if plan.EnglishCharacters != "" {
+		fullPrompt += " Fixed character design, must remain identical across the whole book: " + plan.EnglishCharacters + "."
+	}
 	fullPrompt = stripChineseChars(fullPrompt)
 	client := g.getImageClient()
 	return client.ImageWithExtraRetries(ctx, fullPrompt, api.CoverImageRetries)
@@ -699,6 +769,7 @@ func (g *Generator) createPageImage(ctx context.Context, plan PlanData, p Page) 
 		EmotionID:    emotionID,
 		VisualID:     visualID,
 		Action:       p.Illustration,
+		ExtraDetail:  buildCharacterConsistencyDetail(plan),
 		PageNum:      p.PageNum,
 	}
 	fullPrompt := style.AssembleImagePrompt(req)
@@ -712,11 +783,97 @@ func (g *Generator) createPageImage(ctx context.Context, plan PlanData, p Page) 
 	return data, nil
 }
 
+func buildCharacterConsistencyDetail(plan PlanData) string {
+	if strings.TrimSpace(plan.EnglishCharacters) == "" {
+		return ""
+	}
+	return "Fixed character design: " + plan.EnglishCharacters + ". Keep the exact same character identity, age, hairstyle, clothing, body proportions, accessories, and color palette across every page. Do not redesign or replace the characters."
+}
+
 // createFallbackImage 最简备用方案
 func (g *Generator) createFallbackImage(ctx context.Context, pageNum int) ([]byte, error) {
-	prompt := fmt.Sprintf("A warm colorful children's book illustration, friendly scene, page %d, cute characters, vibrant colors, NO text, NO letters, NO writing, NO Chinese characters, pure illustration only", pageNum)
-	client := g.getImageClient()
-	return client.ImageWithExtraRetries(ctx, prompt, api.FallbackRetries)
+	prompt := fmt.Sprintf("A warm colorful picture book illustration, friendly scene, page %d, consistent characters, vibrant colors, NO text, NO letters, NO writing, NO Chinese characters, pure illustration only", pageNum)
+	if config.IsAllAgeWorkType(g.cfg.WorkType) || (strings.Contains(g.cfg.StoryType, "合家阅读") || strings.Contains(g.cfg.StoryType, "通用")) {
+		prompt = fmt.Sprintf("A family-friendly picture book illustration, cinematic composition, nuanced emotion, page %d, natural human proportions, NO text, NO letters, NO writing, NO Chinese characters, pure illustration only", pageNum)
+	}
+	if strings.TrimSpace(g.cfg.CharacterProfile) != "" {
+		prompt += ", fixed user-specified characters, identical hairstyle, clothing, age, body shape and accessories across all pages"
+	}
+	_ = prompt // prompt kept as documentation of the visual fallback intent.
+	return createLocalPlaceholderImage(pageNum)
+}
+
+func imageExt(data []byte) string {
+	if len(data) >= 8 && bytes.Equal(data[:8], []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}) {
+		return ".png"
+	}
+	if len(data) >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff {
+		return ".jpg"
+	}
+	return ".png"
+}
+
+func createLocalPlaceholderImage(pageNum int) ([]byte, error) {
+	const w, h = 1024, 1024
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	palettes := [][]color.RGBA{
+		{{245, 231, 210, 255}, {173, 207, 230, 255}, {94, 124, 157, 255}},
+		{{232, 238, 218, 255}, {202, 221, 190, 255}, {107, 143, 113, 255}},
+		{{238, 225, 242, 255}, {204, 188, 222, 255}, {119, 99, 151, 255}},
+		{{246, 232, 190, 255}, {232, 190, 152, 255}, {148, 105, 87, 255}},
+	}
+	p := palettes[(pageNum-1)%len(palettes)]
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			t := float64(x+y) / float64(w+h)
+			r := uint8(float64(p[0].R)*(1-t) + float64(p[1].R)*t)
+			g := uint8(float64(p[0].G)*(1-t) + float64(p[1].G)*t)
+			b := uint8(float64(p[0].B)*(1-t) + float64(p[1].B)*t)
+			img.SetRGBA(x, y, color.RGBA{r, g, b, 255})
+		}
+	}
+	// No text: draw simple family-friendly abstract shapes so the reader remains usable.
+	cx := 300 + (pageNum%3)*120
+	cy := 360 + (pageNum%2)*80
+	drawCircle(img, cx, cy, 150, p[2])
+	drawCircle(img, cx+240, cy+80, 110, color.RGBA{255, 255, 255, 185})
+	drawCircle(img, cx-120, cy+250, 90, color.RGBA{255, 255, 255, 150})
+	drawHill(img, color.RGBA{255, 255, 255, 90})
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func drawCircle(img *image.RGBA, cx, cy, r int, c color.RGBA) {
+	b := img.Bounds()
+	rr := r * r
+	for y := cy - r; y <= cy+r; y++ {
+		if y < b.Min.Y || y >= b.Max.Y {
+			continue
+		}
+		for x := cx - r; x <= cx+r; x++ {
+			if x < b.Min.X || x >= b.Max.X {
+				continue
+			}
+			dx, dy := x-cx, y-cy
+			if dx*dx+dy*dy <= rr {
+				img.SetRGBA(x, y, c)
+			}
+		}
+	}
+}
+
+func drawHill(img *image.RGBA, c color.RGBA) {
+	b := img.Bounds()
+	for y := b.Dy() * 2 / 3; y < b.Dy(); y++ {
+		for x := 0; x < b.Dx(); x++ {
+			if y > b.Dy()*2/3+(x-b.Dx()/2)*(x-b.Dx()/2)/1800 {
+				img.SetRGBA(x, y, c)
+			}
+		}
+	}
 }
 
 func shortTitle(text, fallback string) string {
@@ -803,6 +960,8 @@ func (g *Generator) detectCharacterIDs(plan PlanData) []string {
 	chars := plan.Characters + " " + plan.EnglishCharacters
 	chars = strings.ToLower(chars)
 	var ids []string
+	allAge := config.IsAllAgeWorkType(g.cfg.WorkType) || (strings.Contains(g.cfg.StoryType, "合家阅读") || strings.Contains(g.cfg.StoryType, "通用"))
+	hasCustomCharacters := strings.TrimSpace(g.cfg.CharacterProfile) != ""
 	// 检测警察类型
 	if strings.Contains(chars, "特警") || strings.Contains(chars, "swat") {
 		ids = append(ids, "swat")
@@ -812,10 +971,22 @@ func (g *Generator) detectCharacterIDs(plan PlanData) []string {
 		ids = append(ids, "detective")
 	} else if strings.Contains(chars, "消防") || strings.Contains(chars, "firefighter") {
 		ids = append(ids, "firefighter")
-	} else {
+	} else if !allAge && !hasCustomCharacters {
 		ids = append(ids, "police")
 	}
 	// 检测儿童
+	if allAge {
+		if strings.Contains(chars, "woman") || strings.Contains(chars, "female") || strings.Contains(chars, "女士") || strings.Contains(chars, "女人") {
+			ids = append(ids, "main_woman")
+		}
+		if strings.Contains(chars, "man") || strings.Contains(chars, "male") || strings.Contains(chars, "先生") || strings.Contains(chars, "男人") {
+			ids = append(ids, "main_man")
+		}
+		return ids
+	}
+	if hasCustomCharacters {
+		return ids
+	}
 	if strings.Contains(chars, "女孩") || strings.Contains(chars, "girl") {
 		ids = append(ids, "girl_child")
 	} else {
@@ -859,6 +1030,24 @@ func (g *Generator) getVisualID() string {
 	}
 	if strings.Contains(is, "cool") || strings.Contains(is, "冷") {
 		return "soft_flat_cool"
+	}
+	if strings.Contains(is, "watercolor") || strings.Contains(is, "水彩") {
+		return "watercolor"
+	}
+	if strings.Contains(is, "realistic") || strings.Contains(is, "photorealistic") || strings.Contains(is, "写实") || strings.Contains(is, "真人") {
+		return "realistic"
+	}
+	if strings.Contains(is, "ink") || strings.Contains(is, "水墨") || strings.Contains(is, "国风") {
+		return "ink"
+	}
+	if strings.Contains(is, "editorial") || strings.Contains(is, "杂志") || strings.Contains(is, "合家阅读") || strings.Contains(is, "通用") {
+		return "editorial"
+	}
+	if strings.Contains(is, "anime") || strings.Contains(is, "二次元") || strings.Contains(is, "动漫") {
+		return "anime"
+	}
+	if strings.Contains(is, "comic") || strings.Contains(is, "漫画") {
+		return "comic"
 	}
 	// 默认使用 soft_flat（Gemini 参考风格）
 	return "soft_flat"

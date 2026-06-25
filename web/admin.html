@@ -224,8 +224,10 @@ main{flex:1;padding:24px;overflow:auto;display:flex;flex-direction:column}
   </div>
   <label>自定义补充描述（可选）</label>
   <input id="theme" placeholder="如：小猫咪在月球上过生日，遇见了外星朋友..."/>
+  <label>固定角色设定（可选，强烈建议漫画/漫剧填写）</label>
+  <textarea id="characterProfile" class="prompt-box" style="min-height:92px" placeholder="例：主角小林，12岁男孩，黑色短发，蓝色连帽衫，圆框眼镜；伙伴阿月，白色短发，红色围巾。所有页面必须保持同一发型、服装、年龄、体型。"></textarea>
   <div class="row">
-    <div><label>页数</label><input id="pageCount" type="number" value="20" min="12" max="30"/></div>
+    <div><label>页数</label><input id="pageCount" type="number" value="20" min="4" max="60"/></div>
     <div><label>数量</label><input id="count" type="number" value="1" min="1" max="10"/></div>
   </div>
   <button class="primary" id="btn">🚀 开始生成</button>
@@ -588,10 +590,21 @@ function onWorkTypeChange(id){
       $('pageCount').value=mid;
     }
   }
+  var patch={work_type:id};
+  if(id.indexOf('all-age-')===0){
+    if(selectedStyles.length===0 || (selectedStyles.length===1 && selectedStyles[0]==='soft_flat')){
+      selectedStyles=['editorial'];
+      patch.image_styles=selectedStyles;
+      renderStyleTags();
+    }
+    if(selectedStoryStyles.length===0 || (selectedStoryStyles.length===1 && selectedStoryStyles[0]==='warm-growth')){
+      selectedStoryStyles=['all-age-literary-style'];
+      patch.story_styles=selectedStoryStyles;
+      renderStoryStyleTags();
+    }
+  }
   // 保存
-  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-    work_type:id
-  })});
+  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
   toast('已切换为 '+((preset&&preset.name)||id),'success');
 }
 
@@ -601,7 +614,8 @@ function loadConfig(){
     $('cfgApiUrl').value=c.api_base_url||'';
     $('cfgApiKey').value=c.api_key||'';
     $('cfgOutputPath').value=c.output_path||'outputs';
-    if(c.work_type){$('workType').value=c.workType;currentWorkType=c.work_type;}
+    if(c.work_type){$('workType').value=c.work_type;currentWorkType=c.work_type;}
+    if(c.character_profile) $('characterProfile').value=c.character_profile;
     $('pageCount').value=c.page_count||20;
     $('style').value=c.style||'温暖成长叙事';
     if(c.image_styles&&c.image_styles.length){selectedStyles=c.image_styles;renderStyleTags();}
@@ -1359,12 +1373,13 @@ function deleteSelected(){
 function startJob(){
   $('btn').disabled=true;
   var customDesc=$('theme').value.trim();
+  var characterProfile=$('characterProfile').value.trim();
   var theme=presetTheme;
   if(customDesc) theme=presetTheme?(presetTheme+'，'+customDesc):customDesc;
   fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-    story_type:$('workType').value,
+    work_type:$('workType').value,
     theme:theme,
-    style:(selectedStoryStyles.length?selectedStoryStyles.join(','):'温暖成长叙事'),
+    character_profile:characterProfile,
     count:+$('count').value,
     page_count:+$('pageCount').value,
     prompt_template:$('promptText').value
